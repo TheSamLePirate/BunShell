@@ -22,6 +22,8 @@ export type {
   DbQuery,
   NetConnect,
   OsInteract,
+  SecretRead,
+  SecretWrite,
   Capability,
   CapabilityKind,
   CheckResult,

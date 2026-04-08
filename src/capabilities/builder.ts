@@ -55,6 +55,12 @@ export interface CapabilityBuilder {
   /** Grant permission for OS interaction (notifications, clipboard, open). */
   osInteract(): CapabilityBuilder;
 
+  /** Grant permission to read secrets matching key patterns (glob). */
+  secretRead(keys: readonly string[]): CapabilityBuilder;
+
+  /** Grant permission to write secrets matching key patterns (glob). */
+  secretWrite(keys: readonly string[]): CapabilityBuilder;
+
   /** Add a raw capability object. */
   add(capability: Capability): CapabilityBuilder;
 
@@ -154,6 +160,16 @@ export function capabilities(): CapabilityBuilder {
 
     osInteract(): CapabilityBuilder {
       items.push({ kind: "os:interact" });
+      return builder;
+    },
+
+    secretRead(keys: readonly string[]): CapabilityBuilder {
+      items.push({ kind: "secret:read", allowedKeys: keys });
+      return builder;
+    },
+
+    secretWrite(keys: readonly string[]): CapabilityBuilder {
+      items.push({ kind: "secret:write", allowedKeys: keys });
       return builder;
     },
 

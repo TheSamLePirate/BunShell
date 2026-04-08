@@ -116,6 +116,18 @@ export interface OsInteract {
   readonly kind: "os:interact";
 }
 
+/** Read secrets by scoped key pattern. */
+export interface SecretRead<K extends string = string> {
+  readonly kind: "secret:read";
+  readonly allowedKeys: readonly K[];
+}
+
+/** Write/create secrets by scoped key pattern. */
+export interface SecretWrite<K extends string = string> {
+  readonly kind: "secret:write";
+  readonly allowedKeys: readonly K[];
+}
+
 // ---------------------------------------------------------------------------
 // Union + kind literal
 // ---------------------------------------------------------------------------
@@ -132,7 +144,9 @@ export type Capability =
   | EnvWrite
   | DbQuery
   | NetConnect
-  | OsInteract;
+  | OsInteract
+  | SecretRead
+  | SecretWrite;
 
 /** Discriminant values for all capabilities. */
 export type CapabilityKind = Capability["kind"];

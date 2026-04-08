@@ -304,6 +304,42 @@ function checkOsInteract(_held: Capability, required: Capability): CheckResult {
   return { allowed: true, capability: required };
 }
 
+function checkSecretCapability(
+  held: Capability & { allowedKeys: readonly string[] },
+  required: Capability & { allowedKeys: readonly string[] },
+): CheckResult {
+  if (held.allowedKeys.includes("*")) {
+    return { allowed: true, capability: required };
+  }
+
+  const key = required.allowedKeys[0];
+  if (!key) {
+    return {
+      allowed: false,
+      capability: required,
+      reason: "No secret key specified",
+    };
+  }
+
+  // Glob matching on key names (e.g., "AWS_*" matches "AWS_SECRET_ACCESS_KEY")
+  const allowed = held.allowedKeys.some((pattern) => {
+    if (pattern === key) return true;
+    if (pattern.includes("*")) {
+      const glob = new Bun.Glob(pattern);
+      return glob.match(key);
+    }
+    return false;
+  });
+
+  return {
+    allowed,
+    capability: required,
+    reason: allowed
+      ? undefined
+      : `Secret key "${key}" not in allowed list [${held.allowedKeys.join(", ")}]`,
+  };
+}
+
 /** Map capability kinds to their checker functions. */
 const checkers: Record<CapabilityKind, CapabilityChecker> = {
   "fs:read": checkPathCapability as CapabilityChecker,
@@ -317,6 +353,8 @@ const checkers: Record<CapabilityKind, CapabilityChecker> = {
   "db:query": checkPathCapability as CapabilityChecker,
   "net:connect": checkNetConnect,
   "os:interact": checkOsInteract,
+  "secret:read": checkSecretCapability as CapabilityChecker,
+  "secret:write": checkSecretCapability as CapabilityChecker,
 };
 
 // ---------------------------------------------------------------------------
