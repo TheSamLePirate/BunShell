@@ -18,6 +18,7 @@ import { createAuditLogger, type FullAuditLogger } from "../audit/logger";
 import { consoleSink } from "../audit/sinks/console";
 import { createCompleter } from "./completions";
 import { formatAuto } from "./format";
+import { startTuiRepl } from "./tui";
 import { createTerminal } from "./terminal";
 import { typeCheck } from "./typecheck";
 
@@ -88,6 +89,8 @@ function transpileTS(code: string): string {
 export interface ReplOptions {
   /** Enable audit logging to console (default: false). */
   readonly auditConsole?: boolean;
+  /** Use pi-tui based TUI (default: true). */
+  readonly tui?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,9 +272,6 @@ export async function startRepl(options?: ReplOptions): Promise<void> {
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  // Load history
-  const history = loadHistory();
-
   // The capability kinds for the REPL context — used for type checking
   const contextKinds: CapabilityKind[] = [
     "fs:read",
@@ -288,6 +288,70 @@ export async function startRepl(options?: ReplOptions): Promise<void> {
     "secret:read",
     "secret:write",
   ];
+
+  // --- TUI mode (default) ---
+  if (options?.tui !== false) {
+    const dotHandler = (trimmed: string): boolean => {
+      if (trimmed === ".help") {
+        printHelp();
+        return true;
+      }
+      if (trimmed === ".clear") return true;
+      if (trimmed === ".vars") {
+        const keys = Object.keys(userVars);
+        if (keys.length === 0)
+          console.log(`${C.dim}(no variables defined)${C.reset}`);
+        else
+          for (const k of keys)
+            console.log(
+              `${C.cyan}${k}${C.reset}: ${C.dim}${getTypeName(userVars[k])}${C.reset}`,
+            );
+        return true;
+      }
+      if (trimmed === ".caps") {
+        for (const c of ctx.caps.capabilities) {
+          console.log(
+            `  ${C.yellow}${c.kind}${C.reset} ${"pattern" in c ? c.pattern : "allowedBinaries" in c ? (c.allowedBinaries as readonly string[]).join(", ") : "allowedDomains" in c ? (c.allowedDomains as readonly string[]).join(", ") : "allowedKeys" in c ? (c.allowedKeys as readonly string[]).join(", ") : "port" in c ? String(c.port) : "allowedHosts" in c ? (c.allowedHosts as readonly string[]).join(", ") : ""}`,
+          );
+        }
+        return true;
+      }
+      if (trimmed.startsWith(".type")) {
+        printType(trimmed.slice(5).trim());
+        return true;
+      }
+      if (trimmed === ".audit") {
+        const entries = audit.entries.slice(-20);
+        for (const e of entries) {
+          const color =
+            e.result === "success"
+              ? C.green
+              : e.result === "denied"
+                ? C.red
+                : C.yellow;
+          console.log(
+            `${C.dim}${e.timestamp.toISOString().slice(11, 23)}${C.reset} ${color}[${e.result}]${C.reset} ${e.capability}:${e.operation}`,
+          );
+        }
+        if (entries.length === 0)
+          console.log(`${C.dim}(no audit entries)${C.reset}`);
+        return true;
+      }
+      return false;
+    };
+
+    startTuiRepl({
+      contextKinds,
+      evaluate,
+      handleDotCommand: dotHandler,
+      getTypeName,
+    });
+    await new Promise(() => {}); // keep alive
+    return;
+  }
+
+  // --- Fallback: raw terminal mode ---
+  const history = loadHistory();
 
   // Banner
   console.log(

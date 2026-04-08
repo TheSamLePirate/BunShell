@@ -25,3 +25,5 @@ export type {
 } from "./terminal";
 export { typeCheck } from "./typecheck";
 export type { TypeCheckResult, TypeCheckError } from "./typecheck";
+export { startTuiRepl } from "./tui";
+export type { TuiReplOptions } from "./tui";
