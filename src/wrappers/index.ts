@@ -85,3 +85,41 @@ export type { ExtractResult } from "./archive";
 // Stream
 export { lineStream, tailStream, pipeSpawn, streamSpawn } from "./stream";
 export type { StreamingProcess } from "./stream";
+
+// Data parsing
+export {
+  parseJSON,
+  formatJSON,
+  parseCSV,
+  formatCSV,
+  parseTOML,
+  base64Encode,
+  base64Decode,
+  base64DecodeString,
+} from "./data";
+export type { CsvOptions } from "./data";
+
+// Database (SQLite)
+export { dbOpen, dbQuery, dbExec } from "./db";
+export type { TypedDatabase } from "./db";
+
+// Git
+export {
+  gitStatus,
+  gitLog,
+  gitDiff,
+  gitBranch,
+  gitAdd,
+  gitCommit,
+  gitPush,
+  gitPull,
+  gitClone,
+  gitStash,
+} from "./git";
+export type {
+  GitStatus,
+  GitFileChange,
+  GitCommit,
+  GitDiffEntry,
+  GitBranches,
+} from "./git";

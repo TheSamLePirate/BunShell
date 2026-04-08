@@ -43,6 +43,18 @@ export interface CapabilityBuilder {
   /** Grant permission to write specific environment variables. */
   envWrite(keys: readonly string[]): CapabilityBuilder;
 
+  /** Grant permission to query a database at a path. */
+  dbQuery(pattern: GlobPattern): CapabilityBuilder;
+
+  /** Grant permission for raw TCP/UDP connections to hosts. */
+  netConnect(
+    hosts: readonly string[],
+    ports?: readonly number[],
+  ): CapabilityBuilder;
+
+  /** Grant permission for OS interaction (notifications, clipboard, open). */
+  osInteract(): CapabilityBuilder;
+
   /** Add a raw capability object. */
   add(capability: Capability): CapabilityBuilder;
 
@@ -121,6 +133,27 @@ export function capabilities(): CapabilityBuilder {
 
     envWrite(keys: readonly string[]): CapabilityBuilder {
       items.push({ kind: "env:write", allowedKeys: keys });
+      return builder;
+    },
+
+    dbQuery(pattern: GlobPattern): CapabilityBuilder {
+      items.push({ kind: "db:query", pattern });
+      return builder;
+    },
+
+    netConnect(
+      hosts: readonly string[],
+      ports?: readonly number[],
+    ): CapabilityBuilder {
+      const cap: Capability = ports
+        ? { kind: "net:connect", allowedHosts: hosts, allowedPorts: ports }
+        : { kind: "net:connect", allowedHosts: hosts };
+      items.push(cap);
+      return builder;
+    },
+
+    osInteract(): CapabilityBuilder {
+      items.push({ kind: "os:interact" });
       return builder;
     },
 

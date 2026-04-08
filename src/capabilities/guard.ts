@@ -254,6 +254,56 @@ function checkEnvCapability(
   };
 }
 
+function checkNetConnect(held: Capability, required: Capability): CheckResult {
+  const h = held as Capability & {
+    allowedHosts: readonly string[];
+    allowedPorts?: readonly number[];
+  };
+  const r = required as Capability & {
+    allowedHosts: readonly string[];
+    allowedPorts?: readonly number[];
+  };
+
+  if (h.allowedHosts.includes("*")) {
+    return { allowed: true, capability: required };
+  }
+
+  const host = r.allowedHosts[0];
+  if (!host) {
+    return {
+      allowed: false,
+      capability: required,
+      reason: "No host specified",
+    };
+  }
+
+  const hostAllowed = h.allowedHosts.includes(host);
+  if (!hostAllowed) {
+    return {
+      allowed: false,
+      capability: required,
+      reason: `Host "${host}" not in allowed list [${h.allowedHosts.join(", ")}]`,
+    };
+  }
+
+  if (h.allowedPorts && r.allowedPorts) {
+    const port = r.allowedPorts[0];
+    if (port !== undefined && !h.allowedPorts.includes(port)) {
+      return {
+        allowed: false,
+        capability: required,
+        reason: `Port ${String(port)} not in allowed list [${h.allowedPorts.join(", ")}]`,
+      };
+    }
+  }
+
+  return { allowed: true, capability: required };
+}
+
+function checkOsInteract(_held: Capability, required: Capability): CheckResult {
+  return { allowed: true, capability: required };
+}
+
 /** Map capability kinds to their checker functions. */
 const checkers: Record<CapabilityKind, CapabilityChecker> = {
   "fs:read": checkPathCapability as CapabilityChecker,
@@ -264,6 +314,9 @@ const checkers: Record<CapabilityKind, CapabilityChecker> = {
   "net:listen": checkNetListen,
   "env:read": checkEnvCapability as CapabilityChecker,
   "env:write": checkEnvCapability as CapabilityChecker,
+  "db:query": checkPathCapability as CapabilityChecker,
+  "net:connect": checkNetConnect,
+  "os:interact": checkOsInteract,
 };
 
 // ---------------------------------------------------------------------------

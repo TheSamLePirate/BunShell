@@ -98,6 +98,24 @@ export interface EnvWrite<K extends string = string> {
   readonly allowedKeys: readonly K[];
 }
 
+/** Access a database at a specific path. */
+export interface DbQuery<P extends GlobPattern = string> {
+  readonly kind: "db:query";
+  readonly pattern: P;
+}
+
+/** Raw TCP/UDP connection to specific hosts. */
+export interface NetConnect<H extends string = string> {
+  readonly kind: "net:connect";
+  readonly allowedHosts: readonly H[];
+  readonly allowedPorts?: readonly number[] | undefined;
+}
+
+/** Desktop/OS interaction (notifications, clipboard, open). */
+export interface OsInteract {
+  readonly kind: "os:interact";
+}
+
 // ---------------------------------------------------------------------------
 // Union + kind literal
 // ---------------------------------------------------------------------------
@@ -111,7 +129,10 @@ export type Capability =
   | NetFetch
   | NetListen
   | EnvRead
-  | EnvWrite;
+  | EnvWrite
+  | DbQuery
+  | NetConnect
+  | OsInteract;
 
 /** Discriminant values for all capabilities. */
 export type CapabilityKind = Capability["kind"];
