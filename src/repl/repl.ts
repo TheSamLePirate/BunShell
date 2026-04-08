@@ -7,18 +7,19 @@
  * @module
  */
 
-import { createInterface } from "node:readline";
-import { stdin, stdout } from "node:process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { createContext } from "../capabilities/context";
 import { capabilities } from "../capabilities/builder";
+import type { CapabilityKind } from "../capabilities/types";
 import { createAuditLogger, type FullAuditLogger } from "../audit/logger";
 import { consoleSink } from "../audit/sinks/console";
 import { createCompleter } from "./completions";
 import { formatAuto } from "./format";
+import { createTerminal } from "./terminal";
+import { typeCheck } from "./typecheck";
 
 // All BunShell exports — injected into eval scope
 import * as capsMod from "../capabilities/index";
@@ -271,183 +272,152 @@ export async function startRepl(options?: ReplOptions): Promise<void> {
   // Load history
   const history = loadHistory();
 
-  // Multi-line input state
-  let multiLine = "";
-  let braceDepth = 0;
-  let parenDepth = 0;
-
-  function getPrompt(): string {
-    if (multiLine) {
-      return `${C.cyan}...${C.reset} `;
-    }
-    return `${C.cyan}bunshell${C.reset} ${C.magenta}ts${C.reset} ${C.green}>${C.reset} `;
-  }
-
-  const rl = createInterface({
-    input: stdin,
-    output: stdout,
-    prompt: getPrompt(),
-    completer: createCompleter(scope, userVars),
-    terminal: true,
-  });
-
-  // Load history
-  for (const entry of history) {
-    (rl as unknown as { history: string[] }).history.push(entry);
-  }
+  // The capability kinds for the REPL context — used for type checking
+  const contextKinds: CapabilityKind[] = [
+    "fs:read",
+    "fs:write",
+    "fs:delete",
+    "process:spawn",
+    "net:fetch",
+    "net:listen",
+    "env:read",
+    "env:write",
+    "db:query",
+    "net:connect",
+    "os:interact",
+    "secret:read",
+    "secret:write",
+  ];
 
   // Banner
   console.log(
-    `${C.bold}${C.cyan}BunShell${C.reset} ${C.dim}v0.1.0${C.reset} — TypeScript REPL`,
+    `${C.bold}${C.cyan}BunShell${C.reset} ${C.dim}v0.1.0${C.reset} — TypeScript REPL ${C.dim}(real-time highlighting + type checking)${C.reset}`,
   );
   console.log(
     `${C.dim}All BunShell APIs pre-imported. ${C.bold}ctx${C.reset}${C.dim} is ready with full capabilities.${C.reset}`,
   );
   console.log(
-    `${C.dim}Try: ${C.reset}await ls(ctx, ".")${C.dim} or ${C.reset}await pipe(ls(ctx, "."), filter(f => f.isFile), pluck("name"))`,
+    `${C.dim}Try: ${C.reset}await ls(ctx, ".")${C.dim} | ${C.reset}.type FileEntry${C.dim} | ${C.reset}.help`,
   );
   console.log(
-    `${C.dim}Multi-line: open a brace/paren, close it to execute. Ctrl+C to cancel.${C.reset}\n`,
+    `${C.dim}Types ARE permissions — unauthorized calls are compile errors.${C.reset}\n`,
   );
 
-  rl.prompt();
-
-  rl.on("line", async (input) => {
-    const trimmed = input.trimEnd();
-
-    // Handle special commands
-    if (!multiLine) {
-      if (trimmed === ".exit" || trimmed === ".quit") {
-        console.log(`\n${C.dim}Goodbye!${C.reset}`);
-        rl.close();
-        process.exit(0);
-        return;
-      }
-      if (trimmed === ".help") {
-        printHelp();
-        rl.prompt();
-        return;
-      }
-      if (trimmed === ".clear") {
-        console.clear();
-        rl.prompt();
-        return;
-      }
-      if (trimmed === ".vars") {
-        const keys = Object.keys(userVars);
-        if (keys.length === 0) {
-          console.log(`${C.dim}(no variables defined)${C.reset}`);
-        } else {
-          for (const k of keys) {
-            console.log(
-              `${C.cyan}${k}${C.reset}: ${C.dim}${getTypeName(userVars[k])}${C.reset}`,
-            );
-          }
-        }
-        rl.prompt();
-        return;
-      }
-      if (trimmed === ".caps") {
-        for (const c of ctx.caps.capabilities) {
+  // Dot command handler
+  function handleDotCommand(trimmed: string): boolean {
+    if (trimmed === ".exit" || trimmed === ".quit") {
+      console.log(`${C.dim}Goodbye!${C.reset}`);
+      term.close();
+      process.exit(0);
+    }
+    if (trimmed === ".help") {
+      printHelp();
+      return true;
+    }
+    if (trimmed === ".clear") {
+      console.clear();
+      return true;
+    }
+    if (trimmed === ".vars") {
+      const keys = Object.keys(userVars);
+      if (keys.length === 0) {
+        console.log(`${C.dim}(no variables defined)${C.reset}`);
+      } else {
+        for (const k of keys) {
           console.log(
-            `  ${C.yellow}${c.kind}${C.reset} ${"pattern" in c ? c.pattern : "allowedBinaries" in c ? (c.allowedBinaries as readonly string[]).join(", ") : "allowedDomains" in c ? (c.allowedDomains as readonly string[]).join(", ") : "allowedKeys" in c ? (c.allowedKeys as readonly string[]).join(", ") : "port" in c ? String(c.port) : ""}`,
+            `${C.cyan}${k}${C.reset}: ${C.dim}${getTypeName(userVars[k])}${C.reset}`,
           );
         }
-        rl.prompt();
-        return;
       }
-      if (trimmed.startsWith(".type")) {
-        const arg = trimmed.slice(5).trim();
-        printType(arg);
-        rl.prompt();
-        return;
+      return true;
+    }
+    if (trimmed === ".caps") {
+      for (const c of ctx.caps.capabilities) {
+        console.log(
+          `  ${C.yellow}${c.kind}${C.reset} ${"pattern" in c ? c.pattern : "allowedBinaries" in c ? (c.allowedBinaries as readonly string[]).join(", ") : "allowedDomains" in c ? (c.allowedDomains as readonly string[]).join(", ") : "allowedKeys" in c ? (c.allowedKeys as readonly string[]).join(", ") : "port" in c ? String(c.port) : "allowedHosts" in c ? (c.allowedHosts as readonly string[]).join(", ") : ""}`,
+        );
       }
-      if (trimmed === ".audit") {
-        const entries = audit.entries.slice(-20);
-        for (const e of entries) {
-          const color =
-            e.result === "success"
-              ? C.green
-              : e.result === "denied"
-                ? C.red
-                : C.yellow;
-          console.log(
-            `${C.dim}${e.timestamp.toISOString().slice(11, 23)}${C.reset} ${color}[${e.result}]${C.reset} ${e.capability}:${e.operation}`,
-          );
-        }
-        if (entries.length === 0)
-          console.log(`${C.dim}(no audit entries)${C.reset}`);
-        rl.prompt();
-        return;
+      return true;
+    }
+    if (trimmed.startsWith(".type")) {
+      printType(trimmed.slice(5).trim());
+      return true;
+    }
+    if (trimmed === ".audit") {
+      const entries = audit.entries.slice(-20);
+      for (const e of entries) {
+        const color =
+          e.result === "success"
+            ? C.green
+            : e.result === "denied"
+              ? C.red
+              : C.yellow;
+        console.log(
+          `${C.dim}${e.timestamp.toISOString().slice(11, 23)}${C.reset} ${color}[${e.result}]${C.reset} ${e.capability}:${e.operation}`,
+        );
       }
-      if (trimmed === "") {
-        rl.prompt();
-        return;
-      }
+      if (entries.length === 0)
+        console.log(`${C.dim}(no audit entries)${C.reset}`);
+      return true;
+    }
+    return false;
+  }
+
+  // Line handler — the core eval loop with type checking
+  async function handleLine(code: string): Promise<void> {
+    const trimmed = code.trim();
+
+    // Dot commands
+    if (trimmed.startsWith(".")) {
+      if (handleDotCommand(trimmed)) return;
     }
 
-    // Multi-line support: track braces and parens
-    multiLine += (multiLine ? "\n" : "") + input;
-    for (const ch of input) {
-      if (ch === "{" || ch === "(") braceDepth++;
-      if (ch === "}" || ch === ")") braceDepth--;
-      if (ch === "(") parenDepth++;
-      if (ch === ")") parenDepth--;
-    }
+    if (trimmed === "") return;
 
-    // If unclosed braces/parens, continue on next line
-    if (braceDepth > 0 || parenDepth > 0) {
-      rl.setPrompt(getPrompt());
-      rl.prompt();
+    // Step 1: Type check (tsc --noEmit)
+    const check = await typeCheck(code, contextKinds);
+    if (!check.pass) {
+      for (const err of check.errors) {
+        console.log(
+          `${C.red}error${C.reset} ${C.dim}${err.code}${C.reset} ${C.dim}(line ${err.line}:${err.col})${C.reset}: ${err.message}`,
+        );
+      }
+      console.log(
+        `${C.dim}${check.errors.length} type error${check.errors.length === 1 ? "" : "s"} — not executed (${check.duration.toFixed(0)}ms)${C.reset}`,
+      );
       return;
     }
 
-    // Execute
-    const code = multiLine;
-    multiLine = "";
-    braceDepth = 0;
-    parenDepth = 0;
-
-    // Save to history
-    history.push(code.replace(/\n/g, "\\n"));
-    saveHistory(history);
-
+    // Step 2: Evaluate
     try {
       const result = await evaluate(code);
 
       if (result.value !== undefined) {
-        // Print type annotation
         console.log(`${C.dim}// : ${result.type}${C.reset}`);
-        // Print formatted value
         console.log(formatAuto(result.value));
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.log(`${C.red}Error:${C.reset} ${message}`);
     }
+  }
 
-    rl.setPrompt(getPrompt());
-    rl.prompt();
+  // Create raw terminal with real-time highlighting
+  const completer = createCompleter(scope, userVars);
+  const term = createTerminal({
+    prompt: `${C.cyan}bunshell${C.reset} ${C.magenta}ts${C.reset} ${C.green}>${C.reset} `,
+    onLine: handleLine,
+    completer,
+    history,
+    onClose: () => {
+      saveHistory(history);
+      console.log(`\n${C.dim}Goodbye!${C.reset}`);
+      process.exit(0);
+    },
   });
 
-  rl.on("close", () => {
-    console.log(`\n${C.dim}Goodbye!${C.reset}`);
-    process.exit(0);
-  });
-
-  rl.on("SIGINT", () => {
-    if (multiLine) {
-      // Cancel multi-line input
-      multiLine = "";
-      braceDepth = 0;
-      parenDepth = 0;
-      console.log();
-    } else {
-      console.log(`\n${C.dim}(use .exit to quit)${C.reset}`);
-    }
-    rl.setPrompt(getPrompt());
-    rl.prompt();
-  });
+  // Keep process alive
+  await new Promise(() => {});
 }
 
 // ---------------------------------------------------------------------------
