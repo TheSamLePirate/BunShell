@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityKind, RequireCap } from "../capabilities/types";
 import type { WriteResult } from "./types";
 import { resolve } from "node:path";
 import { stat as fsStat } from "node:fs/promises";
@@ -35,8 +35,8 @@ export interface ExtractResult {
  * await tar(ctx, ["src", "package.json"], "backup.tar.gz");
  * ```
  */
-export async function tar(
-  ctx: CapabilityContext,
+export async function tar<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write">,
   paths: readonly string[],
   dest: string,
 ): Promise<WriteResult> {
@@ -81,8 +81,8 @@ export async function tar(
  * await untar(ctx, "backup.tar.gz", "/tmp/extracted");
  * ```
  */
-export async function untar(
-  ctx: CapabilityContext,
+export async function untar<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write">,
   archive: string,
   dest: string,
 ): Promise<ExtractResult> {
@@ -123,8 +123,8 @@ export async function untar(
  * await zip(ctx, ["src", "package.json"], "backup.zip");
  * ```
  */
-export async function zip(
-  ctx: CapabilityContext,
+export async function zip<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write">,
   paths: readonly string[],
   dest: string,
 ): Promise<WriteResult> {
@@ -161,8 +161,8 @@ export async function zip(
  * await unzip(ctx, "backup.zip", "/tmp/extracted");
  * ```
  */
-export async function unzip(
-  ctx: CapabilityContext,
+export async function unzip<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write">,
   archive: string,
   dest: string,
 ): Promise<ExtractResult> {
@@ -203,8 +203,8 @@ export async function unzip(
  * await gzip(ctx, "data.json");  // creates data.json.gz
  * ```
  */
-export async function gzip(
-  ctx: CapabilityContext,
+export async function gzip<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write">,
   path: string,
 ): Promise<WriteResult> {
   const absPath = resolve(path);
@@ -236,8 +236,8 @@ export async function gzip(
  * await gunzip(ctx, "data.json.gz");  // creates data.json
  * ```
  */
-export async function gunzip(
-  ctx: CapabilityContext,
+export async function gunzip<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write">,
   path: string,
 ): Promise<WriteResult> {
   const absPath = resolve(path);

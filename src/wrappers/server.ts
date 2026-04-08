@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityKind, RequireCap } from "../capabilities/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,8 +51,8 @@ export interface ServerHandle {
  * server.stop();
  * ```
  */
-export function serve(
-  ctx: CapabilityContext,
+export function serve<K extends CapabilityKind>(
+  ctx: RequireCap<K, "net:listen">,
   options: ServeOptions,
 ): ServerHandle {
   ctx.caps.demand({ kind: "net:listen", port: options.port });

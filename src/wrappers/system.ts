@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityContext, CapabilityKind, RequireCap } from "../capabilities/types";
 import type { SystemInfo, DfEntry } from "./types";
 import {
   hostname as osHostname,

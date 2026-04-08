@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityContext, CapabilityKind, RequireCap } from "../capabilities/types";
 import type { EnvEntry } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -42,8 +42,8 @@ export function env(ctx: CapabilityContext): EnvEntry[] {
  * const home = getEnv(ctx, "HOME");
  * ```
  */
-export function getEnv(
-  ctx: CapabilityContext,
+export function getEnv<K extends CapabilityKind>(
+  ctx: RequireCap<K, "env:read">,
   key: string,
 ): string | undefined {
   ctx.caps.demand({ kind: "env:read", allowedKeys: [key] });
@@ -63,8 +63,8 @@ export function getEnv(
  * setEnv(ctx, "NODE_ENV", "production");
  * ```
  */
-export function setEnv(
-  ctx: CapabilityContext,
+export function setEnv<K extends CapabilityKind>(
+  ctx: RequireCap<K, "env:write">,
   key: string,
   value: string,
 ): void {

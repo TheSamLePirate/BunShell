@@ -208,14 +208,51 @@ export const noopAuditLogger: AuditLogger = {
 };
 
 // ---------------------------------------------------------------------------
+// Type-level capability helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Require that a context has ALL the specified capability kinds.
+ * Used by wrapper functions to enforce permissions at the type level.
+ *
+ * @example
+ * ```ts
+ * // ls requires fs:read — tsc rejects contexts without it:
+ * function ls(ctx: RequireCap<K, "fs:read">, path?: string): Promise<FileEntry[]>
+ *
+ * // cp requires BOTH fs:read AND fs:write:
+ * function cp(ctx: RequireCap<K, "fs:read" | "fs:write">, src: string, dest: string): Promise<void>
+ * ```
+ */
+export type RequireCap<
+  K extends CapabilityKind,
+  Required extends CapabilityKind,
+> = [Required] extends [K] ? CapabilityContext<K> : never;
+
+// ---------------------------------------------------------------------------
 // Capability context
 // ---------------------------------------------------------------------------
 
 /**
  * The execution context for an agent. All system operations
  * go through this — it bridges types and runtime enforcement.
+ *
+ * @typeParam K - Union of capability kinds this context holds.
+ *   Defaults to all kinds (full access) for backward compatibility.
+ *
+ * @example
+ * ```ts
+ * // Full access context:
+ * const full: CapabilityContext<CapabilityKind> = createContext({ ... });
+ *
+ * // Restricted context — only fs:read + env:read:
+ * const restricted: CapabilityContext<"fs:read" | "env:read"> = ...;
+ *
+ * ls(restricted, ".");  // OK — has fs:read
+ * write(restricted, "f", "d");  // TYPE ERROR — no fs:write
+ * ```
  */
-export interface CapabilityContext {
+export interface CapabilityContext<K extends CapabilityKind = CapabilityKind> {
   /** Unique agent identifier. */
   readonly id: string;
   /** Human-readable agent name. */
@@ -228,8 +265,10 @@ export interface CapabilityContext {
   /**
    * Create a sub-context with reduced capabilities.
    * An agent can NEVER escalate — only reduce.
-   * The returned context's capabilities are the intersection
-   * of the parent's capabilities and the requested subset.
+   * S must be a subset of K.
    */
-  derive(name: string, subset: readonly Capability[]): CapabilityContext;
+  derive<S extends K>(
+    name: string,
+    subset: readonly Capability[],
+  ): CapabilityContext<S>;
 }

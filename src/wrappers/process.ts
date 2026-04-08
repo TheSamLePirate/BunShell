@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityContext, CapabilityKind, RequireCap } from "../capabilities/types";
 import type { ProcessInfo, SpawnResult } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -78,8 +78,8 @@ export async function ps(ctx: CapabilityContext): Promise<ProcessInfo[]> {
  * await kill(ctx, 12345, "SIGKILL");
  * ```
  */
-export async function kill(
-  ctx: CapabilityContext,
+export async function kill<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   pid: number,
   signal: string = "SIGTERM",
 ): Promise<boolean> {
@@ -108,8 +108,8 @@ export async function kill(
  * if (result.success) console.log(result.stdout);
  * ```
  */
-export async function spawn(
-  ctx: CapabilityContext,
+export async function spawn<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   command: string,
   args: readonly string[] = [],
   options?: {
@@ -180,8 +180,8 @@ export async function spawn(
  * const branch = await exec(ctx, "git", ["branch", "--show-current"]);
  * ```
  */
-export async function exec(
-  ctx: CapabilityContext,
+export async function exec<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   command: string,
   args: readonly string[] = [],
 ): Promise<string> {

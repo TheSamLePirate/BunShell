@@ -7,7 +7,7 @@
  */
 
 import { Database, type SQLQueryBindings } from "bun:sqlite";
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityContext, CapabilityKind, RequireCap } from "../capabilities/types";
 import { resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ export interface TypedDatabase {
  * db.close();
  * ```
  */
-export function dbOpen(ctx: CapabilityContext, path: string): TypedDatabase {
+export function dbOpen<K extends CapabilityKind>(ctx: RequireCap<K, "db:query" | "fs:read" | "fs:write">, path: string): TypedDatabase {
   const absPath = resolve(path);
   ctx.caps.demand({ kind: "db:query", pattern: absPath });
   ctx.caps.demand({ kind: "fs:read", pattern: absPath });
@@ -172,8 +172,8 @@ export function dbQuery<T = Record<string, unknown>>(
  * dbExec(ctx, "/tmp/app.db", "INSERT INTO users (name) VALUES (?)", ["Bob"]);
  * ```
  */
-export function dbExec(
-  ctx: CapabilityContext,
+export function dbExec<K extends CapabilityKind>(
+  ctx: RequireCap<K, "db:query" | "fs:read" | "fs:write">,
   path: string,
   sql: string,
   params?: SQLQueryBindings[],

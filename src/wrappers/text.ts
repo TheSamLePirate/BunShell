@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityKind, RequireCap } from "../capabilities/types";
 import type { GrepMatch, WcResult } from "./types";
 import { resolve } from "node:path";
 
@@ -23,8 +23,8 @@ import { resolve } from "node:path";
  * const matches = await grep(ctx, "TODO", null, { input: source });
  * ```
  */
-export async function grep(
-  ctx: CapabilityContext,
+export async function grep<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   pattern: string | RegExp,
   filePath: string | null,
   options?: {

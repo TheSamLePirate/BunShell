@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityContext, CapabilityKind, RequireCap } from "../capabilities/types";
 import type { NetResponse, PingResult, WriteResult } from "./types";
 import { resolve } from "node:path";
 
@@ -85,8 +85,8 @@ export async function netFetch<T = unknown>(
  * if (result.alive) console.log(`${result.time}ms`);
  * ```
  */
-export async function ping(
-  ctx: CapabilityContext,
+export async function ping<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   host: string,
 ): Promise<PingResult> {
   ctx.caps.demand({ kind: "process:spawn", allowedBinaries: ["ping"] });
@@ -132,8 +132,8 @@ export interface DnsRecord {
  * console.log(result.bytesWritten);
  * ```
  */
-export async function download(
-  ctx: CapabilityContext,
+export async function download<K extends CapabilityKind>(
+  ctx: RequireCap<K, "net:fetch" | "fs:write">,
   url: string,
   dest: string,
 ): Promise<WriteResult> {
@@ -179,8 +179,8 @@ export async function download(
  * const records = await dig(ctx, "example.com", "A");
  * ```
  */
-export async function dig(
-  ctx: CapabilityContext,
+export async function dig<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   domain: string,
   type: string = "A",
 ): Promise<DnsRecord[]> {

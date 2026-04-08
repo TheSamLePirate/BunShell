@@ -9,7 +9,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityContext, CapabilityKind, RequireCap } from "../capabilities/types";
 import type { SecretStore } from "./store";
 import type { StateStore } from "./state";
 
@@ -87,8 +87,8 @@ export interface CookieJar {
  *   { headers });
  * ```
  */
-export function authBearer(
-  ctx: CapabilityContext,
+export function authBearer<K extends CapabilityKind>(
+  ctx: RequireCap<K, "secret:read">,
   secrets: SecretStore,
   key: string,
 ): Record<string, string> {
@@ -107,8 +107,8 @@ export function authBearer(
  * const headers = authBasic(ctx, secrets, "API_USER", "API_PASS");
  * ```
  */
-export function authBasic(
-  ctx: CapabilityContext,
+export function authBasic<K extends CapabilityKind>(
+  ctx: RequireCap<K, "secret:read">,
   secrets: SecretStore,
   usernameKey: string,
   passwordKey: string,
@@ -136,8 +136,8 @@ export function authBasic(
  *   "https://api.github.com/user");
  * ```
  */
-export async function authedFetch(
-  ctx: CapabilityContext,
+export async function authedFetch<K extends CapabilityKind>(
+  ctx: RequireCap<K, "net:fetch" | "secret:read">,
   secrets: SecretStore,
   tokenKey: string,
   url: string,
@@ -448,8 +448,8 @@ export function cookieJar(
  * // Now accessible as: secrets.get(ctx, "OPENAI_API_KEY")
  * ```
  */
-export function secretFromEnv(
-  ctx: CapabilityContext,
+export function secretFromEnv<K extends CapabilityKind>(
+  ctx: RequireCap<K, "env:read" | "secret:write">,
   secrets: SecretStore,
   envKey: string,
   secretKey?: string,

@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityKind, RequireCap } from "../capabilities/types";
 import { EventEmitter } from "node:events";
 
 // ---------------------------------------------------------------------------
@@ -48,8 +48,8 @@ export interface TypedWebSocket {
  * ws.close();
  * ```
  */
-export async function wsConnect(
-  ctx: CapabilityContext,
+export async function wsConnect<K extends CapabilityKind>(
+  ctx: RequireCap<K, "net:fetch">,
   url: string,
 ): Promise<TypedWebSocket> {
   const parsed = new URL(url);

@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityContext, CapabilityKind, RequireCap } from "../capabilities/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,8 +171,8 @@ export async function gitStatus(ctx: CapabilityContext): Promise<GitStatus> {
  * for (const c of commits) console.log(c.shortHash, c.message);
  * ```
  */
-export async function gitLog(
-  ctx: CapabilityContext,
+export async function gitLog<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   options?: { readonly limit?: number; readonly ref?: string },
 ): Promise<GitCommit[]> {
   const limit = options?.limit ?? 20;
@@ -217,8 +217,8 @@ export async function gitLog(
  * for (const d of diff) console.log(`${d.file}: +${d.additions} -${d.deletions}`);
  * ```
  */
-export async function gitDiff(
-  ctx: CapabilityContext,
+export async function gitDiff<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   ref?: string,
 ): Promise<GitDiffEntry[]> {
   const args = ref ? ["diff", "--numstat", ref] : ["diff", "--numstat"];
@@ -282,8 +282,8 @@ export async function gitBranch(ctx: CapabilityContext): Promise<GitBranches> {
  * await gitAdd(ctx, ["src/index.ts", "package.json"]);
  * ```
  */
-export async function gitAdd(
-  ctx: CapabilityContext,
+export async function gitAdd<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   paths: readonly string[],
 ): Promise<void> {
   await runGit(ctx, ["add", ...paths]);
@@ -302,8 +302,8 @@ export async function gitAdd(
  * console.log(result.hash);
  * ```
  */
-export async function gitCommit(
-  ctx: CapabilityContext,
+export async function gitCommit<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   message: string,
 ): Promise<{ hash: string }> {
   const output = await runGit(ctx, ["commit", "-m", message]);
@@ -323,8 +323,8 @@ export async function gitCommit(
  * await gitPush(ctx, "origin", "main");
  * ```
  */
-export async function gitPush(
-  ctx: CapabilityContext,
+export async function gitPush<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   remote: string = "origin",
   branch?: string,
 ): Promise<string> {
@@ -340,8 +340,8 @@ export async function gitPush(
  * await gitPull(ctx);
  * ```
  */
-export async function gitPull(
-  ctx: CapabilityContext,
+export async function gitPull<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   remote: string = "origin",
   branch?: string,
 ): Promise<string> {
@@ -357,8 +357,8 @@ export async function gitPull(
  * await gitClone(ctx, "https://github.com/user/repo.git", "/tmp/repo");
  * ```
  */
-export async function gitClone(
-  ctx: CapabilityContext,
+export async function gitClone<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   url: string,
   dest: string,
 ): Promise<string> {
@@ -374,8 +374,8 @@ export async function gitClone(
  * await gitStash(ctx, "pop");
  * ```
  */
-export async function gitStash(
-  ctx: CapabilityContext,
+export async function gitStash<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   action: "push" | "pop" | "list" | "drop" = "push",
 ): Promise<string> {
   return runGit(ctx, ["stash", action]);

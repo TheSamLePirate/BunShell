@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityContext, CapabilityKind, RequireCap } from "../capabilities/types";
 
 // ---------------------------------------------------------------------------
 // openUrl
@@ -20,8 +20,8 @@ import type { CapabilityContext } from "../capabilities/types";
  * await openUrl(ctx, "https://example.com");
  * ```
  */
-export async function openUrl(
-  ctx: CapabilityContext,
+export async function openUrl<K extends CapabilityKind>(
+  ctx: RequireCap<K, "os:interact">,
   url: string,
 ): Promise<void> {
   ctx.caps.demand({ kind: "os:interact" });
@@ -44,8 +44,8 @@ export async function openUrl(
  * await openFile(ctx, "/tmp/report.pdf");
  * ```
  */
-export async function openFile(
-  ctx: CapabilityContext,
+export async function openFile<K extends CapabilityKind>(
+  ctx: RequireCap<K, "os:interact" | "fs:read">,
   path: string,
 ): Promise<void> {
   ctx.caps.demand({ kind: "os:interact" });
@@ -70,8 +70,8 @@ export async function openFile(
  * await notify(ctx, "Build Complete", "All tests passed.");
  * ```
  */
-export async function notify(
-  ctx: CapabilityContext,
+export async function notify<K extends CapabilityKind>(
+  ctx: RequireCap<K, "os:interact">,
   title: string,
   body: string,
 ): Promise<void> {

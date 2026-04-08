@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityContext, CapabilityKind, RequireCap } from "../capabilities/types";
 import type { SpawnResult } from "./types";
 import { resolve } from "node:path";
 import { open } from "node:fs/promises";
@@ -125,8 +125,8 @@ export async function* tailStream(
  * // result.stdout === "apple\nbanana\ncherry\n"
  * ```
  */
-export async function pipeSpawn(
-  ctx: CapabilityContext,
+export async function pipeSpawn<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   command: string,
   args: readonly string[],
   input: string,
@@ -181,8 +181,8 @@ export async function pipeSpawn(
  * }
  * ```
  */
-export function streamSpawn(
-  ctx: CapabilityContext,
+export function streamSpawn<K extends CapabilityKind>(
+  ctx: RequireCap<K, "process:spawn">,
   command: string,
   args: readonly string[] = [],
 ): StreamingProcess {

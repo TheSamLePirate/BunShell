@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { CapabilityContext } from "../capabilities/types";
+import type { CapabilityKind, RequireCap } from "../capabilities/types";
 import type {
   FileEntry,
   FilePermissions,
@@ -102,8 +102,8 @@ export interface LsOptions {
  * const tsFiles = await ls(ctx, "/src", { recursive: true, glob: "*.ts" });
  * ```
  */
-export async function ls(
-  ctx: CapabilityContext,
+export async function ls<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   path: string = ".",
   options?: LsOptions,
 ): Promise<FileEntry[]> {
@@ -184,8 +184,8 @@ export async function ls(
  * const content = await cat(ctx, "/tmp/data.txt");
  * ```
  */
-export async function cat(
-  ctx: CapabilityContext,
+export async function cat<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   path: string,
 ): Promise<string> {
   const absPath = resolve(path);
@@ -207,8 +207,8 @@ export async function cat(
  * console.log(info.size, info.permissions.modeString);
  * ```
  */
-export async function stat(
-  ctx: CapabilityContext,
+export async function stat<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   path: string,
 ): Promise<FileEntry> {
   const absPath = resolve(path);
@@ -229,8 +229,8 @@ export async function stat(
  * if (await exists(ctx, "/tmp/config.json")) { ... }
  * ```
  */
-export async function exists(
-  ctx: CapabilityContext,
+export async function exists<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   path: string,
 ): Promise<boolean> {
   const absPath = resolve(path);
@@ -256,8 +256,8 @@ export async function exists(
  * await mkdir(ctx, "/tmp/output/reports");
  * ```
  */
-export async function mkdir(
-  ctx: CapabilityContext,
+export async function mkdir<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:write">,
   path: string,
 ): Promise<void> {
   const absPath = resolve(path);
@@ -280,8 +280,8 @@ export async function mkdir(
  * await write(ctx, "/tmp/data.json", { key: "value" });
  * ```
  */
-export async function write(
-  ctx: CapabilityContext,
+export async function write<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:write">,
   path: string,
   data: string | Uint8Array | object,
 ): Promise<WriteResult> {
@@ -309,10 +309,10 @@ export async function write(
  * const config = await readJson<Config>(ctx, "/tmp/config.json");
  * ```
  */
-export async function readJson<T = unknown>(
-  ctx: CapabilityContext,
-  path: string,
-): Promise<T> {
+export async function readJson<
+  T = unknown,
+  K extends CapabilityKind = CapabilityKind,
+>(ctx: RequireCap<K, "fs:read">, path: string): Promise<T> {
   const content = await cat(ctx, path);
   return JSON.parse(content) as T;
 }
@@ -325,8 +325,8 @@ export async function readJson<T = unknown>(
  * await writeJson(ctx, "/tmp/output.json", { results: [...] });
  * ```
  */
-export async function writeJson(
-  ctx: CapabilityContext,
+export async function writeJson<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:write">,
   path: string,
   data: unknown,
 ): Promise<WriteResult> {
@@ -345,8 +345,8 @@ export async function writeJson(
  * await rm(ctx, "/tmp/old-output");
  * ```
  */
-export async function rm(
-  ctx: CapabilityContext,
+export async function rm<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:delete">,
   path: string,
   options?: { readonly recursive?: boolean },
 ): Promise<void> {
@@ -375,8 +375,8 @@ export async function rm(
  * await cp(ctx, "/tmp/src.txt", "/tmp/dest.txt");
  * ```
  */
-export async function cp(
-  ctx: CapabilityContext,
+export async function cp<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write">,
   src: string,
   dest: string,
 ): Promise<void> {
@@ -414,8 +414,8 @@ export async function cp(
  * await mv(ctx, "/tmp/old.txt", "/tmp/new.txt");
  * ```
  */
-export async function mv(
-  ctx: CapabilityContext,
+export async function mv<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write" | "fs:delete">,
   src: string,
   dest: string,
 ): Promise<void> {
@@ -441,8 +441,8 @@ export async function mv(
  * const tsFiles = await find(ctx, "/src", "*.ts");
  * ```
  */
-export async function find(
-  ctx: CapabilityContext,
+export async function find<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   path: string,
   pattern: string,
 ): Promise<FileEntry[]> {
@@ -462,8 +462,8 @@ export async function find(
  * console.log(usage.human); // "1.5 MB"
  * ```
  */
-export async function du(
-  ctx: CapabilityContext,
+export async function du<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   path: string,
 ): Promise<DiskUsage> {
   const absPath = resolve(path);
@@ -528,8 +528,8 @@ export async function du(
  * await chmod(ctx, "/tmp/script.sh", 0o755);
  * ```
  */
-export async function chmod(
-  ctx: CapabilityContext,
+export async function chmod<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:write">,
   path: string,
   mode: number,
 ): Promise<void> {
@@ -551,8 +551,8 @@ export async function chmod(
  * await createSymlink(ctx, "/tmp/data", "/tmp/data-link");
  * ```
  */
-export async function createSymlink(
-  ctx: CapabilityContext,
+export async function createSymlink<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write">,
   target: string,
   path: string,
 ): Promise<void> {
@@ -576,8 +576,8 @@ export async function createSymlink(
  * const target = await readLink(ctx, "/tmp/data-link");
  * ```
  */
-export async function readLink(
-  ctx: CapabilityContext,
+export async function readLink<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   path: string,
 ): Promise<string> {
   const absPath = resolve(path);
@@ -598,8 +598,8 @@ export async function readLink(
  * await touch(ctx, "/tmp/marker");
  * ```
  */
-export async function touch(
-  ctx: CapabilityContext,
+export async function touch<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:write">,
   path: string,
 ): Promise<void> {
   const absPath = resolve(path);
@@ -626,8 +626,8 @@ export async function touch(
  * await append(ctx, "/tmp/log.txt", "new line\n");
  * ```
  */
-export async function append(
-  ctx: CapabilityContext,
+export async function append<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:write">,
   path: string,
   data: string | Uint8Array,
 ): Promise<void> {
@@ -650,8 +650,8 @@ export async function append(
  * await truncate(ctx, "/tmp/data.bin", 1024);
  * ```
  */
-export async function truncate(
-  ctx: CapabilityContext,
+export async function truncate<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:write">,
   path: string,
   size: number = 0,
 ): Promise<void> {
@@ -673,8 +673,8 @@ export async function truncate(
  * const real = await realPath(ctx, "/tmp/link");
  * ```
  */
-export async function realPath(
-  ctx: CapabilityContext,
+export async function realPath<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   path: string,
 ): Promise<string> {
   const absPath = resolve(path);
@@ -704,8 +704,8 @@ export interface WatchEvent {
  * watcher.close();
  * ```
  */
-export function watchPath(
-  ctx: CapabilityContext,
+export function watchPath<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   path: string,
   callback: (event: WatchEvent) => void,
   options?: { readonly recursive?: boolean },
@@ -745,8 +745,8 @@ export function watchPath(
  * const tsFiles = await globFiles(ctx, "src/**\/*.ts");
  * ```
  */
-export async function globFiles(
-  ctx: CapabilityContext,
+export async function globFiles<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
   pattern: string,
   cwd?: string,
 ): Promise<string[]> {
