@@ -71,9 +71,8 @@ class OutputArea implements Component {
 
   render(width: number): string[] {
     if (this.lines.length === 0) return [];
-    const termHeight = process.stdout.rows ?? 24;
-    const available = Math.max(termHeight - 8, 5);
-    return this.lines.slice(-available).map((line) => {
+    // Return ALL lines — pi-tui handles viewport/scrolling
+    return this.lines.map((line) => {
       const vis = line.replace(ANSI_RE, "");
       return vis.length > width
         ? line.slice(0, width - 1) + chalk.dim("…")
@@ -121,16 +120,6 @@ class HeaderBar implements Component {
   }
 }
 
-/** Thin horizontal rule. */
-class Rule implements Component {
-  invalidate(): void {
-    /* no cache */
-  }
-  render(width: number): string[] {
-    return [chalk.dim("─".repeat(width))];
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Main TUI REPL
 // ---------------------------------------------------------------------------
@@ -143,9 +132,7 @@ export function startTuiRepl(options: TuiReplOptions): void {
   const tui = new TUI(terminal);
 
   const header = new HeaderBar();
-  const topRule = new Rule();
   const output = new OutputArea();
-  const bottomRule = new Rule();
 
   // Editor theme
   const theme: EditorTheme = {
@@ -166,11 +153,9 @@ export function startTuiRepl(options: TuiReplOptions): void {
 
   const editor = new Editor(tui, theme, { paddingX: 1 });
 
-  // Layout: header → rule → output → rule → editor
+  // Layout: header → output → editor (minimal, clean)
   tui.addChild(header);
-  tui.addChild(topRule);
   tui.addChild(output);
-  tui.addChild(bottomRule);
   tui.addChild(editor);
 
   tui.setFocus(editor);
@@ -305,10 +290,6 @@ export function startTuiRepl(options: TuiReplOptions): void {
   // Welcome
   // -----------------------------------------------------------------------
 
-  output.addOutput(chalk.cyan.bold("BunShell") + chalk.dim(" v0.1.0"));
-  output.addOutput(
-    chalk.dim("Types ARE permissions. Unauthorized calls are compile errors."),
-  );
   output.addOutput(
     chalk.dim("Try: ") +
       highlightCode('await ls(ctx, ".")') +
@@ -317,7 +298,6 @@ export function startTuiRepl(options: TuiReplOptions): void {
       chalk.dim(" │ ") +
       chalk.cyan(".help"),
   );
-  output.addOutput("");
 
   tui.start();
 }
