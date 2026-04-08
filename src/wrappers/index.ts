@@ -55,7 +55,16 @@ export type { LsOptions, WatchEvent } from "./fs";
 export { ps, kill, spawn, exec } from "./process";
 
 // Network
-export { netFetch, ping } from "./net";
+export { netFetch, ping, download, dig } from "./net";
+export type { DnsRecord } from "./net";
+
+// HTTP Server
+export { serve } from "./server";
+export type { ServeOptions, ServerHandle, RouteHandler } from "./server";
+
+// WebSocket
+export { wsConnect } from "./ws";
+export type { TypedWebSocket } from "./ws";
 
 // Environment
 export { env, getEnv, setEnv } from "./env";

@@ -5,7 +5,8 @@
  */
 
 import type { CapabilityContext } from "../capabilities/types";
-import type { NetResponse, PingResult } from "./types";
+import type { NetResponse, PingResult, WriteResult } from "./types";
+import { resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
 // fetch
@@ -107,4 +108,101 @@ export async function ping(
   const time = timeMatch ? parseFloat(timeMatch[1]!) : null;
 
   return { host, alive: true, time };
+}
+
+// ---------------------------------------------------------------------------
+// download
+// ---------------------------------------------------------------------------
+
+/** Result of a DNS lookup. */
+export interface DnsRecord {
+  readonly name: string;
+  readonly type: string;
+  readonly value: string;
+  readonly ttl: number;
+}
+
+/**
+ * Download a URL to a local file.
+ * Requires net:fetch for the domain and fs:write for the destination.
+ *
+ * @example
+ * ```ts
+ * const result = await download(ctx, "https://example.com/data.json", "/tmp/data.json");
+ * console.log(result.bytesWritten);
+ * ```
+ */
+export async function download(
+  ctx: CapabilityContext,
+  url: string,
+  dest: string,
+): Promise<WriteResult> {
+  const parsed = new URL(url);
+  const port = parsed.port
+    ? parseInt(parsed.port, 10)
+    : parsed.protocol === "https:"
+      ? 443
+      : 80;
+
+  ctx.caps.demand({
+    kind: "net:fetch",
+    allowedDomains: [parsed.hostname],
+    allowedPorts: [port],
+  });
+
+  const absDest = resolve(dest);
+  ctx.caps.demand({ kind: "fs:write", pattern: absDest });
+  ctx.audit.log("net:fetch", { op: "download", url, dest: absDest });
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(
+      `Download failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytesWritten = await Bun.write(absDest, bytes);
+  return { bytesWritten, path: absDest };
+}
+
+// ---------------------------------------------------------------------------
+// dig — DNS lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * DNS lookup using the dig command.
+ * Requires process:spawn for "dig".
+ *
+ * @example
+ * ```ts
+ * const records = await dig(ctx, "example.com", "A");
+ * ```
+ */
+export async function dig(
+  ctx: CapabilityContext,
+  domain: string,
+  type: string = "A",
+): Promise<DnsRecord[]> {
+  ctx.caps.demand({ kind: "process:spawn", allowedBinaries: ["dig"] });
+  ctx.audit.log("process:spawn", { op: "dig", domain, type });
+
+  const proc = Bun.spawn(["dig", "+short", "+ttlid", type, domain], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const stdout = await new Response(proc.stdout).text();
+  await proc.exited;
+
+  return stdout
+    .trim()
+    .split("\n")
+    .filter((l) => l.length > 0)
+    .map((line) => ({
+      name: domain,
+      type,
+      value: line.trim(),
+      ttl: 0,
+    }));
 }
