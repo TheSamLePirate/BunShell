@@ -2,65 +2,53 @@
 
 ## What is this?
 
-BunShell is a **typed agent shell system** built on Bun and TypeScript. TypeScript's type system is the permission and security layer. Every system call, file access, network request, and process spawn is wrapped in typed capabilities verified at compile time and enforced at runtime.
+BunShell is a **typed execution layer for AI agents** built on Bun and TypeScript. TypeScript's type system is the permission and security layer. Every system call, file access, network request, and process spawn is wrapped in typed capabilities verified at compile time and enforced at runtime. Agents operate on a virtual filesystem in isolated sessions — nothing touches disk unless explicitly synced.
 
 ## Tech Stack
 
 - **Runtime**: Bun (latest stable)
 - **Language**: TypeScript 5.x, strict mode, no `any`
 - **Package manager**: Bun
-- **Testing**: `bun:test`
+- **Testing**: `bun:test` (395 tests)
 - **Linting**: ESLint with typescript-eslint
 
 ## Commands
 
 ```bash
-bun test              # Run all tests (186 tests)
-bun run typecheck     # TypeScript type checking (tsc --noEmit)
-bun run check         # Both typecheck + tests
-
-# Run examples
-bun run examples/01-basic-ls.ts
-bun run examples/02-pipe-chain.ts
-bun run examples/03-sandboxed-agent.ts
-bun run examples/04-audit-trail.ts
+bun run shell           # Interactive TypeScript REPL
+bun run shell:audit     # REPL with audit logging
+bun run server          # JSON-RPC server on port 7483
+bun test                # Run all 395 tests
+bun run typecheck       # TypeScript type checking (tsc --noEmit)
+bun run check           # Both typecheck + tests
 ```
 
 ## Architecture
 
-5-layer system:
-
 ```
-┌─────────────────────────────────────────────────┐
-│                   Agent Code                     │
-│  import { ls, spawn, pipe } from "bunshell"      │
-├─────────────────────────────────────────────────┤
-│  Layer 5: Agent Sandbox (src/agent/)             │
-│  Subprocess-isolated execution with IPC          │
-├─────────────────────────────────────────────────┤
-│  Layer 4: Audit Logger (src/audit/)              │
-│  Automatic structured logging of all operations  │
-├─────────────────────────────────────────────────┤
-│  Layer 3: Typed Pipe System (src/pipe/)          │
-│  pipe(ls(...), filter, sortBy, pluck, toFile)    │
-├─────────────────────────────────────────────────┤
-│  Layer 2: Structured Wrappers (src/wrappers/)    │
-│  ls→FileEntry[], ps→ProcessInfo[], grep→Match[]  │
-├─────────────────────────────────────────────────┤
-│  Layer 1: Capability Types (src/capabilities/)   │
-│  FSRead, FSWrite, Spawn, NetFetch — types=perms  │
-├─────────────────────────────────────────────────┤
-│              Bun Runtime Primitives              │
-└─────────────────────────────────────────────────┘
+Harness (Claude Code / Cursor / Custom) ──── JSON-RPC 2.0
+            │
+    BunShell Server (sessions + VFS + audit)
+            │
+    Layer 5: Agent Sandbox (VM-isolated subprocess)
+    Layer 4: Audit System (auto-logged, 3 sinks)
+    Layer 3: Pipe System (array + stream O(1) + visualization)
+    Layer 2: 80+ Wrappers (typed structured I/O)
+    Layer 1: 11 Capability Types (types = permissions)
+            │
+        Bun Runtime
 ```
 
 ### Key modules
 
-- **`src/capabilities/`** — Core type system: Capability, CapabilitySet, CapabilityContext, builder, guard, presets
-- **`src/wrappers/`** — fs (ls/cat/stat/write/rm/cp/mv/find/du), process (ps/spawn/exec), net (fetch/ping), env, text (grep/sort/head/tail/wc), system (uname/df/whoami)
-- **`src/pipe/`** — pipe() with 10 overloads, 14 operators, sources (from/fromFile/fromJSON/fromCommand), sinks (toFile/toJSON/toStdout/collect)
-- **`src/audit/`** — AuditLogger with query API, sinks: console, JSONL, stream (EventEmitter)
-- **`src/agent/`** — runAgent() spawns isolated Bun subprocess, passes capabilities via IPC, collects audit trail
+- **`src/capabilities/`** — 11 capability types, builder, guard, presets, context (derive)
+- **`src/wrappers/`** — 15 modules: fs, process, net, env, text, system, crypto, archive, stream, data, db, git, server, ws, os, schedule, user
+- **`src/pipe/`** — Array pipe (14 operators) + Stream pipe (15 lazy operators) + Visualization (table, bar chart, sparkline, histogram)
+- **`src/audit/`** — Logger + 3 sinks (console, JSONL, EventEmitter)
+- **`src/agent/`** — VM-sandboxed subprocess execution, blocked node:fs/child_process
+- **`src/vfs/`** — In-memory virtual filesystem, session-scoped, snapshot/restore
+- **`src/server/`** — JSON-RPC 2.0 HTTP server, session manager, protocol handler
+- **`src/repl/`** — TypeScript eval REPL, autocompletion, type explorer (.type)
 
 ## Code Style
 
@@ -77,6 +65,9 @@ bun run examples/04-audit-trail.ts
 - **Bun.Glob** for path matching (no external deps)
 - **Symlink resolution** before capability checks (prevents escape attacks)
 - **Pattern resolution** handles macOS /tmp → /private/tmp transparently
-- **Subprocess-based sandbox** for agent isolation via `child_process.fork()`
-- **IPC for audit**: worker sends audit entries to host process in real-time
+- **VM sandbox** for agent isolation via `node:vm` (blocks node:fs, child_process, require, process)
+- **Per-path recursive traversal checks** on ls, du, rm, cp
+- **Virtual filesystem** in server mode — agents never touch real disk
+- **JSON-RPC 2.0** protocol for harness integration
+- **s-prefixed operators** for stream pipe (sFilter, sMap, sTake) to distinguish from array operators
 - Package name: `bunshell` (unscoped), `@bunshell/*` as internal path aliases only

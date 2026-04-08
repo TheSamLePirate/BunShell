@@ -698,3 +698,432 @@ bunshell/
 6. **Agents are TypeScript.** No DSL, no custom language. An LLM that writes TypeScript can write agents.
 7. **Bun-native.** Uses `Bun.file()`, `Bun.spawn()`, `Bun.Glob` directly. No Node.js shims.
 8. **Wrappers are thin.** Capability check → audit log → call Bun → return typed data. No business logic.
+
+---
+
+## Extended Wrappers
+
+Beyond the core filesystem, process, text, network, and system wrappers, BunShell includes four tiers of additional wrappers covering everything a computer can do.
+
+### Crypto (no capability required)
+
+Pure computation — hashing, encryption, random generation.
+
+```typescript
+const h = hash("hello world", "sha256");
+// HashResult { hex: "b94d27b9...", base64: "...", bytes: Uint8Array }
+
+const mac = hmac("message", "secret-key", "sha256");
+const id = randomUUID();          // "550e8400-e29b-41d4-..."
+const n = randomInt(1, 100);       // 42
+const bytes = randomBytes(32);     // Uint8Array(32)
+
+// AES-256-GCM encryption
+const key = randomBytes(32);
+const encrypted = encrypt("secret data", key);
+// EncryptResult { ciphertext: "...", iv: "...", tag: "..." }
+const decrypted = decrypt(encrypted.ciphertext, key, encrypted.iv, encrypted.tag);
+// "secret data"
+```
+
+### Archive (fs:read + fs:write)
+
+```typescript
+await tar(ctx, ["src", "package.json"], "backup.tar.gz");
+await untar(ctx, "backup.tar.gz", "/tmp/extracted");
+await zip(ctx, ["src"], "code.zip");
+await unzip(ctx, "code.zip", "/tmp/unzipped");
+await gzip(ctx, "data.json");      // creates data.json.gz
+await gunzip(ctx, "data.json.gz"); // creates data.json
+```
+
+### Streaming I/O
+
+```typescript
+// Stream a file line by line (constant memory for any file size)
+for await (const line of lineStream(ctx, "/var/log/huge.log")) {
+  if (line.includes("ERROR")) console.log(line);
+}
+
+// Live tail (like tail -f)
+for await (const line of tailStream(ctx, "/var/log/app.log")) {
+  console.log("NEW:", line);
+  if (line.includes("SHUTDOWN")) break;
+}
+
+// Pipe stdin into a command
+const result = await pipeSpawn(ctx, "sort", [], "banana\napple\ncherry");
+// result.stdout === "apple\nbanana\ncherry\n"
+
+// Streaming stdout from a long-running process
+const proc = streamSpawn(ctx, "find", ["/", "-name", "*.log"]);
+const reader = proc.stdout.getReader();
+// ... read chunks as they arrive
+```
+
+### Extended Filesystem
+
+```typescript
+await chmod(ctx, "/tmp/script.sh", 0o755);
+await createSymlink(ctx, "/real/file", "/link/to/file");
+const target = await readLink(ctx, "/link/to/file");
+await touch(ctx, "/tmp/marker");
+await append(ctx, "/tmp/log.txt", "new line\n");
+await truncate(ctx, "/tmp/log.txt");
+const real = await realPath(ctx, "/tmp/symlink");
+
+// File watcher
+const watcher = watchPath(ctx, "/tmp/data", (event) => {
+  console.log(event.type, event.filename); // "change" "file.txt"
+});
+watcher.close();
+
+// Glob with per-file capability checks
+const tsFiles = await globFiles(ctx, "**/*.ts", "src");
+```
+
+### Data Parsing (no capability required)
+
+```typescript
+const data = parseJSON<Config>('{"port": 3000}');
+const json = formatJSON(data, 2);
+
+const rows = parseCSV("name,age\nAlice,30\nBob,25");
+// [{ name: "Alice", age: "30" }, { name: "Bob", age: "25" }]
+const csv = formatCSV(rows);
+
+const config = parseTOML('[server]\nport = 8080');
+// { server: { port: 8080 } }
+
+const encoded = base64Encode("hello");  // "aGVsbG8="
+const decoded = base64DecodeString(encoded);  // "hello"
+```
+
+### SQLite Database (db:query)
+
+```typescript
+const db = dbOpen(ctx, "/data/app.db");
+
+db.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)");
+db.exec("INSERT INTO users (name, age) VALUES (?, ?)", ["Alice", 30]);
+
+const users = db.query<{ id: number; name: string; age: number }>(
+  "SELECT * FROM users WHERE age > ?", [25]
+);
+// [{ id: 1, name: "Alice", age: 30 }]
+
+const alice = db.get<{ name: string }>("SELECT name FROM users WHERE id = ?", [1]);
+const tables = db.tables();  // ["users"]
+db.close();
+
+// One-off convenience
+const count = dbQuery<{ c: number }>(ctx, "/data/app.db", "SELECT COUNT(*) as c FROM users");
+```
+
+### Git (process:spawn → git)
+
+```typescript
+const status = await gitStatus(ctx);
+// GitStatus {
+//   branch: "main",
+//   staged: [{ status: "modified", path: "src/index.ts" }],
+//   unstaged: [{ status: "modified", path: "README.md" }],
+//   untracked: ["new-file.ts"],
+//   clean: false
+// }
+
+const commits = await gitLog(ctx, { limit: 10 });
+// GitCommit[] — each has hash, shortHash, author, email, date, message
+
+const diff = await gitDiff(ctx);
+// GitDiffEntry[] — each has file, additions, deletions
+
+const { current, branches } = await gitBranch(ctx);
+
+await gitAdd(ctx, ["src/index.ts"]);
+const { hash } = await gitCommit(ctx, "feat: add feature");
+await gitPush(ctx, "origin", "main");
+await gitStash(ctx, "push");
+```
+
+### HTTP Server (net:listen)
+
+```typescript
+const server = serve(ctx, {
+  port: 3000,
+  routes: {
+    "/health": () => new Response("ok"),
+    "/api/data": () => Response.json({ status: "running" }),
+  },
+});
+console.log(`Listening on ${server.url}`);
+server.stop();
+```
+
+### WebSocket (net:fetch)
+
+```typescript
+const ws = await wsConnect(ctx, "wss://echo.websocket.org");
+ws.onMessage((data) => console.log("Received:", data));
+ws.send("hello");
+ws.send({ type: "event", payload: [1, 2, 3] }); // auto JSON
+ws.close();
+```
+
+### OS Integration (os:interact)
+
+```typescript
+await openUrl(ctx, "https://example.com");     // default browser
+await openFile(ctx, "/tmp/report.pdf");         // default app
+await notify(ctx, "Build Done", "All 395 tests passed.");
+
+const clip = clipboard(ctx);
+await clip.write("copied text");
+const text = await clip.read();
+```
+
+### Scheduling (no capability required)
+
+```typescript
+await sleep(1000);                             // wait 1 second
+
+const handle = interval(5000, () => poll());   // every 5s
+handle.stop();
+
+const timer = timeout(3000, () => alert());    // after 3s
+timer.cancel();
+
+const save = debounce(500, () => flush());     // only fires after 500ms idle
+const log = throttle(1000, (msg) => emit(msg)); // max once per second
+
+// Retry with exponential backoff
+const data = await retry(3, 1000, () => fetchData());
+```
+
+### User/Group (env:read + fs:read)
+
+```typescript
+const me = currentUser(ctx);
+// CurrentUser { uid: 501, gid: 20, username: "alice", home: "/Users/alice", shell: "/bin/zsh" }
+
+const allUsers = await users(ctx);   // UserEntry[] (from /etc/passwd)
+const allGroups = await groups(ctx);  // GroupEntry[] (from /etc/group)
+```
+
+---
+
+## Stream Pipe — O(1) Memory Pipelines
+
+The array-based `pipe()` buffers everything. For large or infinite data, use `streamPipe()` which processes one item at a time through async generators.
+
+```typescript
+// Process a 5GB log file with constant memory
+const errors = streamPipe(
+  lineStream(ctx, "/var/log/huge.log"),     // AsyncIterable<string>
+  sFilter(line => line.includes("ERROR")),  // lazy — only yields matches
+  sMap(line => ({ ts: line.slice(0, 23), msg: line.slice(24) })),
+  sTake(100),                               // stops pulling after 100
+);
+
+// Consume lazily
+for await (const err of errors) {
+  console.log(err.ts, err.msg);
+}
+
+// Or collect into array (for bounded streams)
+const arr = await sToArray(errors);
+```
+
+### Stream Operators
+
+| Operator | Description |
+|---|---|
+| `sFilter(pred)` | Yield items matching predicate |
+| `sMap(fn)` | Transform each item |
+| `sFlatMap(fn)` | Map + flatten |
+| `sTake(n)` | First N items, then stop (true backpressure) |
+| `sSkip(n)` | Drop first N items |
+| `sTap(fn)` | Side effect, passthrough |
+| `sUnique(keyFn?)` | Deduplicate with Set |
+| `sPluck(key)` | Extract property |
+| `sChunk(n)` | Group into batches of N |
+| `sScan(fn, init)` | Running accumulator |
+| `sThrottle(ms)` | Rate limit — max one per interval |
+| `sTakeWhile(pred)` | Yield while true, then stop |
+| `sSkipWhile(pred)` | Skip while true, yield rest |
+
+### Terminal Sinks
+
+```typescript
+const arr = await sToArray(stream);          // collect (bounded only!)
+const sum = await sReduce(stream, (a, n) => a + n, 0);
+const n = await sCount(stream);
+const first = await sFirst(stream);
+await sForEach(stream, item => process(item));
+await sToFile(stream, "/tmp/output.txt");     // line per item
+```
+
+### Source Helpers
+
+```typescript
+streamPipe(fromArray([1, 2, 3]), ...)       // array → async iterable
+streamPipe(fromReadable(response.body), ...) // ReadableStream → async iterable
+streamPipe(fromLines(text), ...)             // string → lines
+streamPipe(lineStream(ctx, path), ...)       // file → lines (native)
+```
+
+---
+
+## TUI Visualization
+
+Pipe any typed array into terminal visualizations — zero dependencies.
+
+### toTable()
+
+```typescript
+await pipe(ps(ctx), toTable({ columns: ["pid", "name", "cpu", "memory"] }));
+// ┌──────┬──────────┬───────┬────────┐
+// │ pid  │ name     │   cpu │ memory │
+// ├──────┼──────────┼───────┼────────┤
+// │ 1234 │ node     │  12.3 │    4.5 │
+// └──────┴──────────┴───────┴────────┘
+```
+
+Options: `columns`, `maxColWidth`, `maxRows`, `headers` (aliases), `alignNumbers`.
+
+### toBarChart()
+
+```typescript
+await pipe(ps(ctx), sortBy("cpu", "desc"), take(5), toBarChart("cpu", "name"));
+//    node │ ████████████████████████████████████████████████ 12.3
+//  chrome │ ██████████████████████████████████ 8.7
+
+// Works with groupBy output too:
+await pipe(gitLog(ctx), groupBy("author"), toBarChart());
+```
+
+Options: `width`, `maxBars`, `sort`, `showValues`, `colorIndex`, `title`.
+
+### toSparkline()
+
+```typescript
+await pipe(ls(ctx, "src", { recursive: true }), pluck("size"), toSparkline());
+// ▁▃▂█▅▁▇▃▂▄ min=42 max=1,355
+```
+
+### toHistogram()
+
+```typescript
+await pipe(ls(ctx, "."), pluck("size"), toHistogram({ buckets: 6 }));
+//     0 │ ████████████████████████████████████████ (24)
+//   500 │ ████████████████████ (14)
+// 1,000 │ ███████ (4)
+```
+
+---
+
+## Virtual Filesystem
+
+An in-memory filesystem for session isolation. Agents read/write without touching disk.
+
+```typescript
+import { createVfs } from "bunshell";
+
+const vfs = createVfs();
+
+// File operations
+vfs.writeFile("/app/index.ts", 'console.log("hello")');
+vfs.readFile("/app/index.ts");        // 'console.log("hello")'
+vfs.exists("/app/index.ts");           // true
+vfs.stat("/app/index.ts");             // VfsStat { isFile: true, size: 22, ... }
+vfs.readdir("/app");                    // VfsEntry[]
+vfs.mkdir("/app/src");
+vfs.rm("/app/old", { recursive: true });
+vfs.cp("/app/a.ts", "/app/b.ts");
+vfs.mv("/app/old.ts", "/app/new.ts");
+vfs.append("/app/log.txt", "line\n");
+vfs.glob("**/*.ts", "/app");           // ["/app/index.ts", ...]
+
+// Mount from real disk (read-only import)
+await vfs.mountFromDisk("/real/project", "/workspace");
+
+// Sync back to disk when done
+await vfs.syncToDisk("/workspace", "/real/output");
+
+// Snapshot for serialization
+const snap = vfs.snapshot();  // { files: {...}, dirs: [...] }
+vfs.restore(snap);             // restore from snapshot
+```
+
+---
+
+## Server Mode — Execution Backend
+
+BunShell runs as an HTTP daemon. Any agent harness connects via JSON-RPC 2.0.
+
+```bash
+bun run server
+# BunShell Server v0.1.0
+# Listening on http://127.0.0.1:7483
+```
+
+### Session Lifecycle
+
+```
+Harness                              BunShell Server
+  │                                       │
+  │ ── session.create ──────────────────> │  Create VFS + capabilities
+  │ <── sessionId ──────────────────────  │
+  │                                       │
+  │ ── session.execute (code) ──────────> │  Transpile TS, eval in VFS
+  │ <── { value, type, duration } ──────  │  Typed result
+  │                                       │
+  │ ── session.execute (code) ──────────> │  Same session, same VFS
+  │ <── { value, type, duration } ──────  │
+  │                                       │
+  │ ── session.fs.snapshot ─────────────> │  Export full VFS state
+  │ <── { snapshot, fileCount } ────────  │
+  │                                       │
+  │ ── session.audit ───────────────────> │  Every operation logged
+  │ <── { entries: [...] } ─────────────  │
+  │                                       │
+  │ ── session.destroy ─────────────────> │  Clean up
+  │ <── { totalExecutions } ────────────  │
+```
+
+### JSON-RPC Methods
+
+| Method | Params | Returns |
+|---|---|---|
+| `session.create` | `name`, `capabilities[]`, `files?`, `mount?`, `timeout?` | `sessionId`, `fileCount` |
+| `session.execute` | `sessionId`, `code`, `timeout?` | `value`, `type`, `duration` |
+| `session.destroy` | `sessionId` | `totalExecutions`, `totalAuditEntries` |
+| `session.list` | — | `sessions[]` |
+| `session.audit` | `sessionId`, `limit?`, `capability?` | `entries[]` |
+| `session.fs.read` | `sessionId`, `path` | `content`, `size` |
+| `session.fs.write` | `sessionId`, `path`, `content` | `size` |
+| `session.fs.list` | `sessionId`, `path` | `entries[]` |
+| `session.fs.snapshot` | `sessionId` | `snapshot`, `fileCount`, `totalBytes` |
+
+### Error Codes
+
+| Code | Meaning |
+|---|---|
+| `-32700` | Parse error (invalid JSON) |
+| `-32600` | Invalid request |
+| `-32601` | Method not found |
+| `-32602` | Invalid params |
+| `-32001` | Session not found |
+| `-32002` | Capability denied |
+| `-32003` | Execution error |
+| `-32004` | Timeout |
+
+### Security in Server Mode
+
+- **VFS isolation**: agents never see real disk
+- **Capability enforcement**: every VFS operation checks capabilities
+- **Audit trail**: every operation logged per session
+- **Timeout**: per-execution and per-session timeouts
+- **Localhost only**: binds to `127.0.0.1` by default
+- **CORS**: enabled for browser-based harnesses
+- **Snapshots**: export/restore VFS state without touching disk
