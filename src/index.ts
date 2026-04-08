@@ -15,3 +15,5 @@ export * from "./audit/index";
 export * from "./agent/index";
 export { startRepl } from "./repl/index";
 export type { ReplOptions } from "./repl/index";
+export * from "./vfs/index";
+export * from "./server/index";

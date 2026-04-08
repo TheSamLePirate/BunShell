@@ -5,11 +5,13 @@
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "bunshell": "bin/bunshell.ts"
+    "bunshell": "bin/bunshell.ts",
+    "bunshell-server": "bin/bunshell-server.ts"
   },
   "scripts": {
     "shell": "bun run bin/bunshell.ts",
     "shell:audit": "bun run bin/bunshell.ts --audit",
+    "server": "bun run bin/bunshell-server.ts --verbose",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "tsc --noEmit && bun test"
