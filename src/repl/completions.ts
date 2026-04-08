@@ -98,8 +98,43 @@ const AGENT_RESULT_PROPS = [
   "error",
 ];
 
+const GIT_STATUS_PROPS = ["branch", "staged", "unstaged", "untracked", "clean"];
+const GIT_COMMIT_PROPS = [
+  "hash",
+  "shortHash",
+  "author",
+  "email",
+  "date",
+  "message",
+];
+const GIT_BRANCHES_PROPS = ["current", "branches"];
+const TYPED_DATABASE_PROPS = [
+  "path",
+  "query",
+  "exec",
+  "run",
+  "get",
+  "tables",
+  "close",
+];
+const SERVER_HANDLE_PROPS = ["port", "hostname", "url", "stop"];
+const TYPED_WS_PROPS = [
+  "url",
+  "isOpen",
+  "send",
+  "onMessage",
+  "onError",
+  "onClose",
+  "close",
+];
+const CURRENT_USER_PROPS = ["uid", "gid", "username", "home", "shell"];
+const HASH_RESULT_PROPS = ["hex", "base64", "bytes"];
+const ENCRYPT_RESULT_PROPS = ["ciphertext", "iv", "tag"];
+const CLIPBOARD_HANDLE_PROPS = ["read", "write"];
+
 const DOT_COMMANDS = [
   ".help",
+  ".type",
   ".vars",
   ".caps",
   ".audit",
@@ -233,6 +268,24 @@ function getPropsForValue(value: any): string[] {
     if ("os" in value && "arch" in value && "platform" in value)
       return SYSTEM_INFO_PROPS;
     if ("success" in value && "auditTrail" in value) return AGENT_RESULT_PROPS;
+    if ("branch" in value && "staged" in value && "clean" in value)
+      return GIT_STATUS_PROPS;
+    if ("hash" in value && "shortHash" in value && "author" in value)
+      return GIT_COMMIT_PROPS;
+    if ("current" in value && "branches" in value) return GIT_BRANCHES_PROPS;
+    if ("query" in value && "exec" in value && "tables" in value)
+      return TYPED_DATABASE_PROPS;
+    if ("port" in value && "hostname" in value && "stop" in value)
+      return SERVER_HANDLE_PROPS;
+    if ("isOpen" in value && "onMessage" in value) return TYPED_WS_PROPS;
+    if ("uid" in value && "gid" in value && "username" in value)
+      return CURRENT_USER_PROPS;
+    if ("hex" in value && "base64" in value && "bytes" in value)
+      return HASH_RESULT_PROPS;
+    if ("ciphertext" in value && "iv" in value && "tag" in value)
+      return ENCRYPT_RESULT_PROPS;
+    if ("read" in value && "write" in value && Object.keys(value).length === 2)
+      return CLIPBOARD_HANDLE_PROPS;
 
     // Fallback: enumerate own keys
     return Object.keys(value);

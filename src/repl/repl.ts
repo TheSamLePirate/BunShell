@@ -562,11 +562,20 @@ ${C.yellow}Scheduling${C.reset} ${C.dim}(no capability)${C.reset}
 ${C.yellow}User${C.reset} ${C.dim}(env:read, fs:read)${C.reset}
   currentUser  users  groups
 
-${C.yellow}Pipe${C.reset}
+${C.yellow}Pipe${C.reset} ${C.dim}(array, eager)${C.reset}
   pipe  filter  map  reduce  take  skip  sortBy  groupBy
   unique  flatMap  tap  count  first  last  pluck
   from  fromFile  fromJSON  fromCommand
   toFile  toJSON  toStdout  collect
+
+${C.yellow}Stream Pipe${C.reset} ${C.dim}(async iterable, O(1) memory)${C.reset}
+  streamPipe  sFilter  sMap  sFlatMap  sTake  sSkip  sTap
+  sUnique  sPluck  sChunk  sScan  sThrottle  sTakeWhile  sSkipWhile
+  sToArray  sReduce  sCount  sFirst  sForEach  sToFile
+  fromArray  fromReadable  fromLines
+
+${C.yellow}Visualization${C.reset} ${C.dim}(pipe sinks)${C.reset}
+  toTable  toBarChart  toSparkline  toHistogram
 
 ${C.yellow}Agent${C.reset}
   runAgent
@@ -584,17 +593,28 @@ ${C.yellow}Examples:${C.reset}
   ${C.dim}// List files${C.reset}
   await ls(ctx, "src", { recursive: true, glob: "*.ts" })
 
-  ${C.dim}// Typed pipe chain${C.reset}
-  await pipe(ls(ctx, "."), filter(f => f.isFile), sortBy("size", "desc"), pluck("name"))
+  ${C.dim}// Typed pipe → table${C.reset}
+  await pipe(ls(ctx, "."), toTable())
 
-  ${C.dim}// Explore a type${C.reset}
+  ${C.dim}// Process bar chart${C.reset}
+  await pipe(ps(ctx), sortBy("cpu", "desc"), take(10), toBarChart("cpu", "name"))
+
+  ${C.dim}// File sizes sparkline${C.reset}
+  await pipe(ls(ctx, "src", { recursive: true }), pluck("size"), toSparkline())
+
+  ${C.dim}// Stream 10K lines with O(1) memory${C.reset}
+  await sToArray(streamPipe(lineStream(ctx, "file.log"), sFilter(l => l.includes("ERROR")), sTake(5)))
+
+  ${C.dim}// Git commits by author → bar chart${C.reset}
+  await pipe(gitLog(ctx, { limit: 50 }), groupBy("author"), toBarChart())
+
+  ${C.dim}// Hash + encrypt${C.reset}
+  hash("hello", "sha256")
+  const key = randomBytes(32); encrypt("secret", key)
+
+  ${C.dim}// Explore types${C.reset}
   .type FileEntry
-
-  ${C.dim}// SQLite database${C.reset}
-  const db = dbOpen(ctx, "/tmp/app.db")
-
-  ${C.dim}// Git status${C.reset}
-  await gitStatus(ctx)
+  .type Capability
 `);
 }
 
@@ -864,6 +884,43 @@ const TYPE_DEFS: Record<string, string> = {
   ${C.cyan}sortBy${C.reset}?: keyof FileEntry
   ${C.cyan}order${C.reset}?: "asc" | "desc"
 }`,
+  TableOptions: `${C.magenta}interface${C.reset} ${C.cyan}TableOptions${C.reset} {
+  ${C.cyan}columns${C.reset}?: string[]           ${C.dim}// columns to display${C.reset}
+  ${C.cyan}maxColWidth${C.reset}?: number         ${C.dim}// default 40${C.reset}
+  ${C.cyan}maxRows${C.reset}?: number             ${C.dim}// default 50${C.reset}
+  ${C.cyan}headers${C.reset}?: Record<string, string>  ${C.dim}// column aliases${C.reset}
+  ${C.cyan}alignNumbers${C.reset}?: boolean       ${C.dim}// default true${C.reset}
+}`,
+  BarChartOptions: `${C.magenta}interface${C.reset} ${C.cyan}BarChartOptions${C.reset} {
+  ${C.cyan}width${C.reset}?: number               ${C.dim}// bar width (default: terminal width)${C.reset}
+  ${C.cyan}maxBars${C.reset}?: number             ${C.dim}// default 20${C.reset}
+  ${C.cyan}sort${C.reset}?: boolean               ${C.dim}// sort desc (default true)${C.reset}
+  ${C.cyan}showValues${C.reset}?: boolean         ${C.dim}// show values (default true)${C.reset}
+  ${C.cyan}colorIndex${C.reset}?: number          ${C.dim}// 0-7 color palette${C.reset}
+  ${C.cyan}title${C.reset}?: string
+}`,
+  HistogramOptions: `${C.magenta}interface${C.reset} ${C.cyan}HistogramOptions${C.reset} {
+  ${C.cyan}buckets${C.reset}?: number             ${C.dim}// default 10${C.reset}
+  ${C.cyan}width${C.reset}?: number               ${C.dim}// bar width${C.reset}
+}`,
+  StreamStage: `${C.magenta}type${C.reset} ${C.cyan}StreamStage${C.reset}<A, B> = (input: AsyncIterable<A>) => AsyncIterable<B>
+${C.dim}// Lazy transform — processes one item at a time, O(1) memory${C.reset}`,
+  StreamSink: `${C.magenta}type${C.reset} ${C.cyan}StreamSink${C.reset}<A, B> = (input: AsyncIterable<A>) => Promise<B>
+${C.dim}// Terminal — consumes the stream and produces a final value${C.reset}`,
+  PipeStage: `${C.magenta}type${C.reset} ${C.cyan}PipeStage${C.reset}<A, B> = (input: A) => B | Promise<B>
+${C.dim}// Eager transform — operates on full arrays${C.reset}`,
+  IntervalHandle: `${C.magenta}interface${C.reset} ${C.cyan}IntervalHandle${C.reset} {
+  ${C.cyan}stop${C.reset}(): void
+}`,
+  TimeoutHandle: `${C.magenta}interface${C.reset} ${C.cyan}TimeoutHandle${C.reset} {
+  ${C.cyan}cancel${C.reset}(): void
+}`,
+  CheckResult: `${C.magenta}interface${C.reset} ${C.cyan}CheckResult${C.reset} {
+  ${C.cyan}allowed${C.reset}: boolean
+  ${C.cyan}capability${C.reset}: Capability
+  ${C.cyan}reason${C.reset}?: string
+}`,
+  HashAlgorithm: `${C.magenta}type${C.reset} ${C.cyan}HashAlgorithm${C.reset} = "sha256" | "sha512" | "sha1" | "md5" | "sha384"`,
 };
 
 function printType(name: string): void {
