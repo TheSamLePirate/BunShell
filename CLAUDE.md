@@ -2,72 +2,92 @@
 
 ## What is this?
 
-BunShell is a **typed execution layer for AI agents** built on Bun and TypeScript. TypeScript's type system is the permission and security layer. Every system call, file access, network request, and process spawn is wrapped in typed capabilities verified at compile time and enforced at runtime. Agents operate on a virtual filesystem in isolated sessions — nothing touches disk unless explicitly synced.
+BunShell is a **typed execution layer for AI agents**. TypeScript's type system is the permission model — unauthorized actions are compile-time type errors. `CapabilityContext<K>` is generic over which capability kinds it holds, and every wrapper function's type signature enforces what's required. `tsc` itself rejects code that exceeds its permissions.
 
 ## Tech Stack
 
 - **Runtime**: Bun (latest stable)
 - **Language**: TypeScript 5.x, strict mode, no `any`
 - **Package manager**: Bun
-- **Testing**: `bun:test` (395 tests)
+- **Testing**: `bun:test` (439 tests)
 - **Linting**: ESLint with typescript-eslint
 
 ## Commands
 
 ```bash
-bun run shell           # Interactive TypeScript REPL
-bun run shell:audit     # REPL with audit logging
+bun run shell           # Interactive TypeScript shell (highlighted, type-checked)
+bun run shell:audit     # Shell with audit logging
 bun run server          # JSON-RPC server on port 7483
-bun test                # Run all 395 tests
-bun run typecheck       # TypeScript type checking (tsc --noEmit)
+bun test                # Run all 439 tests
+bun run typecheck       # tsc --noEmit
 bun run check           # Both typecheck + tests
 ```
 
 ## Architecture
 
 ```
-Harness (Claude Code / Cursor / Custom) ──── JSON-RPC 2.0
+Harness (Claude Code / Cursor / Custom) ─── JSON-RPC 2.0
             │
-    BunShell Server (sessions + VFS + audit)
+    BunShell Server (sessions + VFS + audit + tsc)
             │
-    Layer 5: Agent Sandbox (VM-isolated subprocess)
-    Layer 4: Audit System (auto-logged, 3 sinks)
-    Layer 3: Pipe System (array + stream O(1) + visualization)
-    Layer 2: 80+ Wrappers (typed structured I/O)
-    Layer 1: 11 Capability Types (types = permissions)
+    Secrets & Auth (AES-256-GCM, OAuth2, cookie jar)
+    Agent Sandbox (VM-isolated subprocess)
+    Audit System (auto-logged, 3 sinks)
+    Pipe System (array + stream O(1) + viz)
+    80+ Wrappers (every operation typed + checked)
+    13 Capability Types (compile-time permission model)
             │
         Bun Runtime
 ```
 
-### Key modules
+## Type-Level Permission Model
 
-- **`src/capabilities/`** — 11 capability types, builder, guard, presets, context (derive)
-- **`src/wrappers/`** — 15 modules: fs, process, net, env, text, system, crypto, archive, stream, data, db, git, server, ws, os, schedule, user
-- **`src/pipe/`** — Array pipe (14 operators) + Stream pipe (15 lazy operators) + Visualization (table, bar chart, sparkline, histogram)
+```typescript
+// RequireCap — the core type helper
+type RequireCap<K, Required> = [Required] extends [K] ? CapabilityContext<K> : never;
+
+// Every wrapper carries its requirement:
+function ls<K>(ctx: RequireCap<K, "fs:read">, ...): Promise<FileEntry[]>
+function write<K>(ctx: RequireCap<K, "fs:write">, ...): Promise<WriteResult>
+function cp<K>(ctx: RequireCap<K, "fs:read" | "fs:write">, ...): Promise<void>
+function dbOpen<K>(ctx: RequireCap<K, "db:query" | "fs:read" | "fs:write">, ...): TypedDatabase
+```
+
+The shell runs `tsc --noEmit` before execution. Type errors block execution.
+
+## Key Modules
+
+- **`src/capabilities/`** — 13 cap types, `RequireCap<K>` helper, builder, guard, presets, context
+- **`src/wrappers/`** — 17 modules: fs, process, net, env, text, system, crypto, archive, stream, data, db, git, server, ws, os, schedule, user
+- **`src/pipe/`** — Array pipe (14 ops) + Stream pipe (15 lazy ops) + Viz (table, bar, spark, histogram)
 - **`src/audit/`** — Logger + 3 sinks (console, JSONL, EventEmitter)
-- **`src/agent/`** — VM-sandboxed subprocess execution, blocked node:fs/child_process
-- **`src/vfs/`** — In-memory virtual filesystem, session-scoped, snapshot/restore
-- **`src/server/`** — JSON-RPC 2.0 HTTP server, session manager, protocol handler
-- **`src/repl/`** — TypeScript eval REPL, autocompletion, type explorer (.type)
+- **`src/agent/`** — VM-sandboxed subprocess execution
+- **`src/vfs/`** — In-memory virtual filesystem, session-scoped
+- **`src/server/`** — JSON-RPC 2.0 HTTP server, session manager
+- **`src/secrets/`** — Encrypted secret store (AES-256-GCM), state store, auth helpers (OAuth2, cookies)
+- **`src/repl/`** — Raw terminal (real-time highlighting), tsc integration, type explorer, autocompletion
 
 ## Code Style
 
 - Strict TypeScript: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`
 - No `any` — use `unknown` + type guards
-- No classes unless genuinely needed (prefer functions + interfaces)
-- Named exports everywhere (no default exports except agent scripts)
+- Named exports, no default exports (except agent scripts)
 - Error handling: `Result<T, E>` types, throw only for capability violations
-- Max file length: ~300 lines
-- TDD: write tests first, run `bun test` and `tsc --noEmit` after every change
+- Every wrapper: generic `<K extends CapabilityKind>` with `RequireCap<K, "...">` constraint
+- Max file length: ~300 lines (signatures.ts exception: declarative data)
+- TDD: tests first, `bun test` and `tsc --noEmit` after every change
 
 ## Key Design Decisions
 
+- **`RequireCap<K, Required>`** — `[Required] extends [K]` with tuple wrapper prevents union distribution
+- **Default `K = CapabilityKind`** — backward compat: unparameterized context has "all" capabilities
 - **Bun.Glob** for path matching (no external deps)
-- **Symlink resolution** before capability checks (prevents escape attacks)
-- **Pattern resolution** handles macOS /tmp → /private/tmp transparently
-- **VM sandbox** for agent isolation via `node:vm` (blocks node:fs, child_process, require, process)
+- **Symlink resolution** before capability checks
+- **VM sandbox** for agent isolation (`node:vm`, blocks `node:fs`, `child_process`, `require`, `process`)
 - **Per-path recursive traversal checks** on ls, du, rm, cp
-- **Virtual filesystem** in server mode — agents never touch real disk
-- **JSON-RPC 2.0** protocol for harness integration
-- **s-prefixed operators** for stream pipe (sFilter, sMap, sTake) to distinguish from array operators
-- Package name: `bunshell` (unscoped), `@bunshell/*` as internal path aliases only
+- **Virtual filesystem** in server mode
+- **JSON-RPC 2.0** for harness integration
+- **Raw terminal mode** for real-time syntax highlighting (replaces readline)
+- **tsc --noEmit** before every REPL execution
+- **Secret values structurally impossible** to appear in audit logs (`[REDACTED]`)
+- **PBKDF2 key derivation** (100K iterations, SHA-512) for secret store master key

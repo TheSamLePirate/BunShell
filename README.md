@@ -2,9 +2,20 @@
 
 **A typed execution layer for AI agents.** TypeScript's type system _is_ the permission model.
 
-Every file read, network request, process spawn, and database query goes through typed capabilities that are checked at compile time and enforced at runtime. Agents operate on a virtual filesystem in isolated sessions — nothing touches disk unless you say so.
+Unauthorized actions don't just fail at runtime — they don't compile. Every wrapper function carries its capability requirement in its type signature. `tsc` itself rejects code that tries to read files without `fs:read`, spawn processes without `process:spawn`, or access secrets without `secret:read`. The compiler is the permission system.
 
-BunShell is what happens when you take the "bash is not enough" thesis seriously: a typed, sandboxed, auditable TypeScript environment that any agent harness can use as its execution backend.
+```typescript
+// This compiles and runs:
+const ctx: CapabilityContext<"fs:read" | "env:read"> = ...;
+await ls(ctx, "src");          // OK — ctx has fs:read
+
+// This is a TYPE ERROR — tsc rejects it before execution:
+await write(ctx, "/tmp/f", "d");
+//    ~~~~~ Error: CapabilityContext<"fs:read" | "env:read">
+//          is not assignable to RequireCap<K, "fs:write">
+```
+
+The shell shows this live — real-time syntax highlighting as you type, and `tsc --noEmit` before every execution.
 
 ## Quick Start
 
@@ -12,27 +23,22 @@ BunShell is what happens when you take the "bash is not enough" thesis seriously
 bun install
 ```
 
-### Interactive REPL
+### Interactive Shell
 
 ```bash
 bun run shell
 ```
 
-```typescript
-bunshell ts > await ls(ctx, "src", { recursive: true, glob: "*.ts" })
-// : FileEntry[31]
-FileEntry[31] [
-  FileEntry { name: "index.ts", size: 342, extension: "ts", ... },
+```
+bunshell ts > const files = await ls(ctx, "src")
+              ─────                ──      ─────
+              blue(keyword)        cyan(api) green(string)
+// : FileEntry[7]
+FileEntry[7] [
+  FileEntry { name: "capabilities", isDirectory: true, ... },
+  FileEntry { name: "wrappers", isDirectory: true, ... },
   ...
 ]
-
-bunshell ts > await pipe(ls(ctx, "."), filter(f => f.isFile), sortBy("size", "desc"), toTable())
-┌──────────┬────────┬───────────┐
-│ name     │   size │ extension │
-├──────────┼────────┼───────────┤
-│ bun.lock │ 20,638 │ lock      │
-│ ...      │    ... │ ...       │
-└──────────┴────────┴───────────┘
 
 bunshell ts > .type FileEntry
 interface FileEntry {
@@ -42,6 +48,14 @@ interface FileEntry {
   isDirectory: boolean
   ...
 }
+
+bunshell ts > await pipe(ls(ctx, "."), filter(f => f.isFile), sortBy("size", "desc"), toTable())
+┌──────────┬────────┬───────────┐
+│ name     │   size │ extension │
+├──────────┼────────┼───────────┤
+│ bun.lock │ 20,638 │ lock      │
+│ ...      │    ... │ ...       │
+└──────────┴────────┴───────────┘
 ```
 
 ### Server Mode
@@ -50,175 +64,207 @@ interface FileEntry {
 bun run server
 ```
 
-Any harness (Claude Code, Cursor, custom) connects via JSON-RPC:
+Any agent harness connects via JSON-RPC 2.0:
 
 ```bash
-# Create an isolated session with virtual filesystem
+# Create session with virtual filesystem — nothing touches disk
 curl -X POST http://127.0.0.1:7483 -H 'Content-Type: application/json' -d '{
   "jsonrpc": "2.0", "id": 1,
   "method": "session.create",
   "params": {
     "name": "my-agent",
-    "capabilities": [
-      { "kind": "fs:read", "pattern": "*" },
-      { "kind": "fs:write", "pattern": "/output/**" }
-    ],
-    "files": {
-      "/src/app.ts": "export const main = () => console.log(\"hello\");",
-      "/src/utils.ts": "export function add(a: number, b: number) { return a + b; }"
-    }
+    "capabilities": [{ "kind": "fs:read", "pattern": "*" }],
+    "files": { "/src/app.ts": "export const main = () => {}" }
   }
 }'
 
-# Execute typed TypeScript in the session
+# Execute typed TypeScript — capability-checked, audited
 curl -X POST http://127.0.0.1:7483 -H 'Content-Type: application/json' -d '{
   "jsonrpc": "2.0", "id": 2,
   "method": "session.execute",
-  "params": { "sessionId": "session-1-...", "code": "ls(\"/src\")" }
+  "params": { "sessionId": "...", "code": "ls(\"/src\")" }
 }'
-# → { "value": [{ "name": "app.ts", ... }, { "name": "utils.ts", ... }], "type": "Array[2]" }
 ```
 
 ## Why Not Bash?
 
 | Problem | Bash | BunShell |
 |---|---|---|
-| Is `rm -rf /` destructive? | No standard to tell | `fs:delete` is a distinct capability type |
-| Auto-approve reads, block writes | Impossible | `capabilities().fsRead("**")` — no write granted |
-| Agent escapes sandbox | One bad command = game over | VM isolation blocks `node:fs`, `require`, `process` |
-| Output of `ls -la` | Raw text, needs parsing | `FileEntry[]` — typed, structured, pipeable |
-| Permission scope | All or nothing | Glob patterns: `.fsRead("/src/**").spawn(["git"])` |
-| Where data lives | Real disk | Virtual filesystem — nothing touches disk |
-| Auditing | Hope you logged it | Every operation automatically recorded |
-| Portability | Needs a real machine | JSON-RPC server, sessions, VFS snapshots |
+| Is `rm -rf /` destructive? | No standard | `fs:delete` is a separate type |
+| Auto-approve reads, block writes | Impossible | Types enforce it at compile time |
+| Agent escapes sandbox | One command away | VM blocks `node:fs`, `require`, `process` |
+| Output of `ls -la` | Raw text | `FileEntry[]` — typed, pipeable |
+| Permission scope | All or nothing | Glob patterns, domain lists, key lists |
+| Where data lives | Real disk | Virtual filesystem per session |
+| Auditing | Hope you logged it | Automatic, structural |
+| Portability | Needs a real machine | JSON-RPC server, VFS snapshots |
+| **Permission model** | **Runtime, ad-hoc** | **Compile-time, in the type system** |
 
-## Architecture
+## How Types Enforce Permissions
 
-```
-┌──────────────────────────────────────────────────────┐
-│              Any Agent Harness                        │
-│   Claude Code / Cursor / Custom Agent / REPL          │
-├───────────────── JSON-RPC 2.0 ───────────────────────┤
-│              BunShell Server                          │
-│   Sessions × Virtual Filesystem × Audit Trail         │
-├──────────────────────────────────────────────────────┤
-│  Layer 5: Agent Sandbox        VM-isolated execution  │
-│  Layer 4: Audit System         Auto-logged operations │
-│  Layer 3: Pipe System          Array + Stream (O(1))  │
-│  Layer 2: 80+ Wrappers         Typed structured I/O   │
-│  Layer 1: 11 Capability Types  Types ARE permissions  │
-├──────────────────────────────────────────────────────┤
-│              Bun Runtime                              │
-└──────────────────────────────────────────────────────┘
+### CapabilityContext is Generic
+
+```typescript
+// The context carries which capabilities it has AT THE TYPE LEVEL:
+interface CapabilityContext<K extends CapabilityKind> {
+  readonly caps: CapabilitySet;
+  derive<S extends K>(name: string, subset: Capability[]): CapabilityContext<S>;
+}
 ```
 
-## The 11 Capability Types
+### Every Wrapper Has a Type Constraint
 
-Every operation requires a capability. No capability = denied at compile time AND runtime.
+```typescript
+// RequireCap resolves to the context type if it has the required kind,
+// otherwise resolves to `never` — making the call a type error.
+type RequireCap<K, Required> = [Required] extends [K] ? CapabilityContext<K> : never;
 
-| Capability | Gates | Example |
+// ls requires fs:read:
+function ls<K extends CapabilityKind>(ctx: RequireCap<K, "fs:read">, path?: string): Promise<FileEntry[]>
+
+// cp requires BOTH fs:read AND fs:write:
+function cp<K extends CapabilityKind>(ctx: RequireCap<K, "fs:read" | "fs:write">, src: string, dest: string): Promise<void>
+
+// dbOpen requires db:query AND fs:read AND fs:write:
+function dbOpen<K extends CapabilityKind>(ctx: RequireCap<K, "db:query" | "fs:read" | "fs:write">, path: string): TypedDatabase
+```
+
+### What tsc Catches
+
+```typescript
+const readOnly: CapabilityContext<"fs:read"> = ...;
+const envOnly: CapabilityContext<"env:read"> = ...;
+const full: CapabilityContext<"fs:read" | "fs:write" | "process:spawn"> = ...;
+
+ls(readOnly, ".");       // OK — has fs:read
+ls(full, ".");           // OK — has fs:read (among others)
+ls(envOnly, ".");        // TYPE ERROR — no fs:read
+
+write(readOnly, "/f", "d");  // TYPE ERROR — no fs:write
+write(full, "/f", "d");     // OK — has fs:write
+
+cp(readOnly, "a", "b");     // TYPE ERROR — has fs:read but NOT fs:write
+cp(full, "a", "b");         // OK — has both
+```
+
+### The Builder Accumulates Types
+
+```typescript
+capabilities()
+  .fsRead("/src/**")          // CapabilityBuilder<"fs:read">
+  .spawn(["git"])             // CapabilityBuilder<"fs:read" | "process:spawn">
+  .envRead(["HOME", "PATH"])  // CapabilityBuilder<"fs:read" | "process:spawn" | "env:read">
+  .build()
+```
+
+### derive() Can Only Reduce
+
+```typescript
+const parent: CapabilityContext<"fs:read" | "fs:write"> = ...;
+const child: CapabilityContext<"fs:read"> = parent.derive("child", [...]);
+// child's K is a subset of parent's K — enforced by <S extends K>
+```
+
+## The 13 Capability Types
+
+| Capability | Gates | Type constraint |
 |---|---|---|
-| `fs:read` | Read files/directories | `{ kind: "fs:read", pattern: "/src/**" }` |
-| `fs:write` | Write/create files | `{ kind: "fs:write", pattern: "/tmp/**" }` |
-| `fs:delete` | Delete files/directories | `{ kind: "fs:delete", pattern: "/tmp/**" }` |
-| `process:spawn` | Execute binaries | `{ kind: "process:spawn", allowedBinaries: ["git"] }` |
-| `net:fetch` | HTTP requests | `{ kind: "net:fetch", allowedDomains: ["api.github.com"] }` |
-| `net:listen` | Open server port | `{ kind: "net:listen", port: 3000 }` |
-| `env:read` | Read env variables | `{ kind: "env:read", allowedKeys: ["HOME", "PATH"] }` |
-| `env:write` | Modify env variables | `{ kind: "env:write", allowedKeys: ["NODE_ENV"] }` |
-| `db:query` | SQLite database access | `{ kind: "db:query", pattern: "/data/*.db" }` |
-| `net:connect` | Raw TCP/UDP | `{ kind: "net:connect", allowedHosts: ["redis.local"] }` |
-| `os:interact` | Desktop (notify, clipboard) | `{ kind: "os:interact" }` |
+| `fs:read` | Read files/directories | `RequireCap<K, "fs:read">` |
+| `fs:write` | Write/create files | `RequireCap<K, "fs:write">` |
+| `fs:delete` | Delete files/directories | `RequireCap<K, "fs:delete">` |
+| `process:spawn` | Execute binaries | `RequireCap<K, "process:spawn">` |
+| `net:fetch` | HTTP requests | `RequireCap<K, "net:fetch">` |
+| `net:listen` | Open server port | `RequireCap<K, "net:listen">` |
+| `env:read` | Read env variables | `RequireCap<K, "env:read">` |
+| `env:write` | Modify env variables | `RequireCap<K, "env:write">` |
+| `db:query` | SQLite database access | `RequireCap<K, "db:query">` |
+| `net:connect` | Raw TCP/UDP | `RequireCap<K, "net:connect">` |
+| `os:interact` | Desktop (notify, clipboard) | `RequireCap<K, "os:interact">` |
+| `secret:read` | Read secrets (glob on keys) | `RequireCap<K, "secret:read">` |
+| `secret:write` | Write secrets | `RequireCap<K, "secret:write">` |
 
-### Builder API
+## The Shell
 
-```typescript
-const caps = capabilities()
-  .fsRead("/src/**")
-  .fsWrite("/tmp/**")
-  .spawn(["git", "bun"])
-  .netFetch(["api.github.com"])
-  .envRead(["HOME", "PATH"])
-  .dbQuery("/data/**")
-  .build();
+### Real-Time Syntax Highlighting
+
+Every keystroke re-renders the line with colors. Raw terminal mode — no readline.
+
+| Token | Color | Example |
+|---|---|---|
+| Keywords | **bold blue** | `const`, `await`, `async`, `function`, `if` |
+| BunShell APIs | **cyan** | `ls`, `pipe`, `filter`, `hash`, `gitStatus` |
+| Capability kinds | **yellow bold** | `"fs:read"`, `"process:spawn"` |
+| Strings | **green** | `"hello"`, `'/tmp'` |
+| Numbers | **yellow** | `42`, `0xFF`, `3.14` |
+| Types | **magenta italic** | `: number`, `: FileEntry[]` |
+| Booleans/null | **yellow** | `true`, `false`, `null`, `undefined` |
+| Operators | **dim** | `===`, `=>`, `&&`, `\|\|` |
+| Comments | **dim** | `// comment`, `/* block */` |
+
+### Type Checking Before Execution
+
+Every time you press Enter, `tsc --noEmit` runs on your code with proper type declarations. If there are type errors — including capability violations — the code is **not executed**.
+
+```
+bunshell ts > await write(readOnlyCtx, "/tmp/f", "data")
+error TS2345 (line 1:13): Argument of type 'CapabilityContext<"fs:read">'
+  is not assignable to parameter of type 'RequireCap<"fs:read", "fs:write">'
+1 type error — not executed (450ms)
 ```
 
-### No Escalation
+### Type Explorer
 
-```typescript
-const parent = createContext({ name: "parent", capabilities: [...] });
-
-// Child can only REDUCE permissions, never escalate
-const child = parent.derive("child", [
-  { kind: "fs:read", pattern: "/src/**" },     // OK if parent has it
-  { kind: "fs:write", pattern: "**" },          // DROPPED — parent doesn't have fs:write
-]);
 ```
+bunshell ts > .type
+Available types:
+  AgentResult     AuditEntry      Capability      CapabilityContext
+  FileEntry       GitCommit       SpawnResult     TypedDatabase    ...
+
+bunshell ts > .type Capability
+type Capability =
+  | FSRead      { kind: "fs:read",     pattern: string }
+  | FSWrite     { kind: "fs:write",    pattern: string }
+  | Spawn       { kind: "process:spawn", allowedBinaries: string[] }
+  ...
+```
+
+### Dot Commands
+
+| Command | Description |
+|---|---|
+| `.help` | All 80+ wrappers organized by category |
+| `.type <name>` | Show TypeScript interface (50+ types) |
+| `.vars` | Show defined variables with types |
+| `.caps` | Show current capabilities |
+| `.audit` | Show recent audit entries |
+| `.clear` | Clear screen |
+| `.exit` | Exit |
 
 ## 80+ Typed Wrappers
 
-Every wrapper takes a `CapabilityContext`, checks permissions, audit-logs, and returns typed data.
-
 ### Filesystem
-```typescript
-const files = await ls(ctx, "src", { recursive: true, glob: "*.ts", sortBy: "size" });
-// → FileEntry[]
-
-const content = await cat(ctx, "src/index.ts");     // → string
-const info = await stat(ctx, "src/index.ts");        // → FileEntry
-await write(ctx, "/tmp/out.txt", "hello");            // → WriteResult
-await chmod(ctx, "/tmp/script.sh", 0o755);
-const real = await realPath(ctx, "/tmp/link");        // → string (resolved)
-const matches = await globFiles(ctx, "**/*.ts");      // → string[]
-```
+`ls` `cat` `stat` `exists` `mkdir` `write` `readJson` `writeJson` `rm` `cp` `mv` `find` `du` `chmod` `createSymlink` `readLink` `touch` `append` `truncate` `realPath` `watchPath` `globFiles`
 
 ### Process
-```typescript
-const result = await spawn(ctx, "git", ["status"]);
-// → SpawnResult { exitCode: 0, stdout: "...", success: true, duration: 45 }
-
-const procs = await ps(ctx);                          // → ProcessInfo[]
-const output = await exec(ctx, "git", ["branch"]);    // → string (throws on failure)
-```
+`ps` `kill` `spawn` `exec`
 
 ### Network
-```typescript
-const resp = await netFetch(ctx, "https://api.github.com/user");
-// → NetResponse { status: 200, body: {...}, duration: 150 }
+`netFetch` `ping` `download` `dig` `serve` `wsConnect`
 
-await download(ctx, "https://example.com/data.json", "/tmp/data.json");
-const server = serve(ctx, { port: 3000, routes: { "/health": () => new Response("ok") } });
-```
-
-### Database (SQLite)
-```typescript
-const db = dbOpen(ctx, "/data/app.db");
-db.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
-db.exec("INSERT INTO users (name) VALUES (?)", ["Alice"]);
-const users = db.query<{ id: number; name: string }>("SELECT * FROM users");
-db.close();
-```
+### Database
+`dbOpen` `dbQuery` `dbExec`
 
 ### Git
-```typescript
-const status = await gitStatus(ctx);
-// → GitStatus { branch: "main", staged: [...], unstaged: [...], clean: false }
-
-const commits = await gitLog(ctx, { limit: 10 });     // → GitCommit[]
-const branches = await gitBranch(ctx);                  // → GitBranches
-```
+`gitStatus` `gitLog` `gitDiff` `gitBranch` `gitAdd` `gitCommit` `gitPush` `gitPull` `gitClone` `gitStash`
 
 ### Crypto
-```typescript
-const h = hash("hello", "sha256");                     // → HashResult { hex: "2cf24d...", base64: "..." }
-const key = randomBytes(32);
-const encrypted = encrypt("secret", key);               // → EncryptResult { ciphertext, iv, tag }
-const decrypted = decrypt(encrypted.ciphertext, key, encrypted.iv, encrypted.tag);
-```
+`hash` `hmac` `randomBytes` `randomUUID` `randomInt` `encrypt` `decrypt`
 
-### Text, Env, System, Archive, Stream, Data, OS, Scheduling, User
+### Secrets & Auth
+`createSecretStore` `deriveKey` `secretFromEnv` `authBearer` `authBasic` `authedFetch` `oauth2DeviceFlow` `cookieJar`
 
-See `.help` in the REPL or [the full guide](docs/guide.md) for all 80+ functions.
+### Archive, Stream, Data, Text, Env, System, OS, Scheduling, User
+See `.help` in the shell or [docs/guide.md](docs/guide.md).
 
 ## Pipe System
 
@@ -230,18 +276,16 @@ await pipe(
   filter<FileEntry>(f => f.size > 1000),
   sortBy("size", "desc"),
   take(10),
-  toTable(),
+  toBarChart("size", "name"),
 );
 ```
 
 ### Stream Pipe (lazy, O(1) memory)
 
 ```typescript
-// Process a 5GB log file with constant memory
 const errors = streamPipe(
   lineStream(ctx, "/var/log/huge.log"),
   sFilter(line => line.includes("ERROR")),
-  sMap(line => ({ ts: line.slice(0, 23), msg: line.slice(24) })),
   sTake(100),
 );
 for await (const err of errors) console.log(err);
@@ -249,150 +293,103 @@ for await (const err of errors) console.log(err);
 
 ### Visualization Sinks
 
-```typescript
-// Table
-await pipe(ps(ctx), toTable({ columns: ["pid", "name", "cpu", "memory"] }));
-
-// Bar chart
-await pipe(ps(ctx), sortBy("cpu", "desc"), take(10), toBarChart("cpu", "name"));
-
-// Sparkline
-await pipe(ls(ctx, "src", { recursive: true }), pluck("size"), toSparkline());
-
-// Histogram
-await pipe(ls(ctx, "."), pluck("size"), toHistogram({ buckets: 8 }));
-```
+`toTable()` `toBarChart()` `toSparkline()` `toHistogram()`
 
 ## Server Mode
 
-BunShell as an execution backend for any agent harness.
-
-```bash
-bun run server
-```
-
-### Protocol: JSON-RPC 2.0
+JSON-RPC 2.0 over HTTP. Any harness connects.
 
 | Method | Description |
 |---|---|
-| `session.create` | New session with capabilities + VFS + files |
-| `session.execute` | Run TypeScript in session (VFS-backed) |
+| `session.create` | New session with capabilities + VFS |
+| `session.execute` | Run TypeScript (VFS-backed, capability-checked) |
 | `session.destroy` | Tear down session |
 | `session.list` | List active sessions |
 | `session.audit` | Query audit trail |
-| `session.fs.read` | Read VFS file directly |
-| `session.fs.write` | Write VFS file directly |
-| `session.fs.list` | List VFS directory |
-| `session.fs.snapshot` | Export full VFS state |
+| `session.fs.read/write/list/snapshot` | Direct VFS access |
 
 ### Virtual Filesystem
 
-Sessions operate on an in-memory VFS. Nothing touches disk.
+Sessions operate on in-memory VFS. Nothing touches disk.
 
 ```typescript
-// Harness pre-populates files from a git repo
 session.create({
-  files: { "/src/index.ts": "...", "/src/utils.ts": "..." }
+  files: { "/src/app.ts": "...", "/src/utils.ts": "..." },
+  capabilities: [{ kind: "fs:read", pattern: "*" }]
 })
+session.execute({ code: 'cat("/src/app.ts")' })     // OK
+session.execute({ code: 'write("/hack", "bad")' })  // DENIED
+session.fs.snapshot()                                 // export full VFS
+```
 
-// Or mount a real directory into the VFS
-session.create({
-  mount: { diskPath: "/real/repo", vfsPath: "/workspace" }
-})
+## Secret & State Management
 
-// Agent code reads/writes VFS — capabilities enforced
-session.execute({ code: 'cat("/src/index.ts")' })       // OK
-session.execute({ code: 'write("/src/hack.ts", "bad")' }) // DENIED
+```typescript
+const { key } = deriveKey("password");  // PBKDF2, 100K iterations
+const secrets = createSecretStore(key);  // AES-256-GCM encrypted
 
-// Get the VFS back when done
-session.fs.snapshot({ sessionId: "..." })
+secrets.set(ctx, "GITHUB_TOKEN", "ghp_xxx...", { expiresAt: ... });
+const token = secrets.get(ctx, "GITHUB_TOKEN");  // decrypted on access
+
+// Audit logs NEVER contain secret values — structurally [REDACTED]
+// Key enumeration respects glob capability patterns
+// HMAC integrity verification on snapshots
+// Master key rotation without data loss
 ```
 
 ## Security Model
 
-### Defense in Depth
-1. **Compile time** — TypeScript enforces capability requirements on function signatures
-2. **Runtime** — `CapabilitySet.demand()` checks and throws `CapabilityError`
-3. **VM sandbox** — Agent subprocesses can't import `node:fs`, `child_process`, `require`, or access `process`
-4. **VFS isolation** — Server mode agents never touch real disk
-5. **Symlink safety** — Paths resolved through symlinks before capability checks
-6. **Recursive traversal** — Per-path checks on `ls`, `du` walks; wildcard enforcement on `rm`, `cp`
-
-### What Gets Blocked
-
-```typescript
-// No fs:write → can't write files
-write(ctx, "/tmp/hack.txt", "data")
-// CapabilityError: No capability of kind "fs:write" granted
-
-// Path outside pattern → denied
-cat(ctx, "/etc/passwd")  // ctx only has fsRead("/src/**")
-// CapabilityError: Path "/etc/passwd" does not match pattern "/src/**"
-
-// Binary not in allowlist → can't spawn
-spawn(ctx, "rm", ["-rf", "/"])  // ctx only allows ["git"]
-// CapabilityError: Binary "rm" not in allowed list [git]
-
-// VM sandbox → can't escape
-import { readFileSync } from "node:fs"  // in agent script
-// Error: Import blocked: "node:fs" is not an allowed module
-
-// derive() can't escalate
-parent.derive("child", [{ kind: "fs:write", pattern: "**" }])
-// fs:write silently dropped — parent doesn't have it
-```
+| Layer | What it catches |
+|---|---|
+| **TypeScript compiler** | Unauthorized capability usage (compile-time type error) |
+| **Runtime guard** | Path/domain/key pattern violations (`demand()` throws) |
+| **VM sandbox** | Agent imports of `node:fs`, `child_process`, `require`, `process` |
+| **VFS isolation** | Server-mode agents never touch real disk |
+| **Symlink resolution** | Path traversal attacks via symlinks |
+| **Recursive traversal** | Per-path capability checks in `ls`, `du`, `rm`, `cp` |
+| **Secret redaction** | Values structurally impossible to appear in audit logs |
+| **HMAC integrity** | Tampered secret store snapshots detected |
 
 ## Commands
 
 ```bash
-bun run shell           # Interactive TypeScript REPL
-bun run shell:audit     # REPL with audit logging
+bun run shell           # Interactive TypeScript shell (highlighted, type-checked)
+bun run shell:audit     # Shell with audit logging to console
 bun run server          # JSON-RPC server on port 7483
-bun test                # Run 395 tests
+bun test                # Run 439 tests
 bun run typecheck       # TypeScript type checking
 bun run check           # Both typecheck + tests
 ```
 
-## Examples
-
-```bash
-bun run examples/01-basic-ls.ts           # Simple ls with typed output
-bun run examples/02-pipe-chain.ts         # Pipe: ls → sort → pluck → stdout
-bun run examples/03-sandboxed-agent.ts    # Agent with limited capabilities
-bun run examples/04-audit-trail.ts        # Full audit logging
-bun run examples/05-denied-operations.ts  # Every denial category demonstrated
-bun run examples/06-visualizations.ts     # Tables, bar charts, sparklines
-```
-
-## Project Structure
+## Architecture
 
 ```
-bunshell/
-├── src/
-│   ├── capabilities/   Layer 1 — 11 types, guard, context, builder, presets
-│   ├── wrappers/       Layer 2 — 80+ typed functions (fs, process, net, ...)
-│   ├── pipe/           Layer 3 — Array pipe + Stream pipe + Visualization
-│   ├── audit/          Layer 4 — Logger + 3 sinks (console, JSONL, stream)
-│   ├── agent/          Layer 5 — VM-sandboxed subprocess execution
-│   ├── vfs/            Virtual filesystem (in-memory, session-scoped)
-│   ├── server/         JSON-RPC server (sessions, protocol, handler)
-│   └── repl/           TypeScript REPL with autocompletion + type explorer
-├── bin/
-│   ├── bunshell.ts         Interactive shell entry point
-│   └── bunshell-server.ts  Server daemon entry point
-├── examples/           6 runnable examples
-├── tests/              395 tests across 28 files
-└── docs/               Architecture guide
+┌──────────────────────────────────────────────────────┐
+│              Any Agent Harness                        │
+│   Claude Code / Cursor / Custom Agent / Shell         │
+├───────────────── JSON-RPC 2.0 ───────────────────────┤
+│              BunShell Server                          │
+│   Sessions × Virtual FS × Audit × Type Checking      │
+├──────────────────────────────────────────────────────┤
+│  Secrets & Auth    Encrypted store, OAuth2, cookies   │
+│  Agent Sandbox     VM-isolated subprocess execution   │
+│  Audit System      Auto-logged, 3 sinks              │
+│  Pipe System       Array + Stream O(1) + Viz          │
+│  80+ Wrappers      Every operation typed + checked    │
+│  13 Cap Types      Compile-time permission model      │
+├──────────────────────────────────────────────────────┤
+│              Bun Runtime                              │
+└──────────────────────────────────────────────────────┘
 ```
 
 ## Stats
 
-- **17,400+ lines** of TypeScript
-- **395 tests**, 0 failures, 0 type errors
-- **80+ wrapper functions** across 15 modules
-- **11 capability types** gating every operation
-- **0 runtime dependencies** (only dev: typescript, eslint, bun-types)
-- **21 commits** of incremental, tested development
+- **20,000+ lines** of TypeScript
+- **439 tests**, 0 failures, 0 type errors
+- **80+ wrapper functions** across 17 modules
+- **13 capability types** enforced by the TypeScript compiler
+- **0 runtime dependencies**
+- **25 commits** of incremental, tested development
 
 ## License
 

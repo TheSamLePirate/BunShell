@@ -1127,3 +1127,187 @@ Harness                              BunShell Server
 - **Localhost only**: binds to `127.0.0.1` by default
 - **CORS**: enabled for browser-based harnesses
 - **Snapshots**: export/restore VFS state without touching disk
+
+---
+
+## Type-Level Capability Enforcement
+
+This is BunShell's most important feature. Capabilities are not just runtime values — they're embedded in the TypeScript type system.
+
+### How It Works
+
+`CapabilityContext` is generic over which capability kinds it holds:
+
+```typescript
+interface CapabilityContext<K extends CapabilityKind = CapabilityKind> {
+  readonly caps: CapabilitySet;
+  derive<S extends K>(name: string, subset: Capability[]): CapabilityContext<S>;
+}
+```
+
+The `RequireCap` helper type resolves to the context if it has the required kind, or `never` if it doesn't:
+
+```typescript
+type RequireCap<K extends CapabilityKind, Required extends CapabilityKind> =
+  [Required] extends [K] ? CapabilityContext<K> : never;
+```
+
+Every wrapper function uses this to declare its requirements:
+
+```typescript
+function ls<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read">,
+  path?: string,
+): Promise<FileEntry[]>
+
+function cp<K extends CapabilityKind>(
+  ctx: RequireCap<K, "fs:read" | "fs:write">,
+  src: string, dest: string,
+): Promise<void>
+```
+
+### What This Means
+
+```typescript
+const readOnly: CapabilityContext<"fs:read"> = ...;
+const envOnly: CapabilityContext<"env:read"> = ...;
+
+ls(readOnly, ".");           // Compiles — readOnly has fs:read
+ls(envOnly, ".");            // TYPE ERROR — envOnly doesn't have fs:read
+write(readOnly, "/f", "d");  // TYPE ERROR — readOnly doesn't have fs:write
+cp(readOnly, "a", "b");     // TYPE ERROR — readOnly has fs:read but NOT fs:write
+```
+
+The TypeScript compiler catches these before any code executes. The runtime `demand()` guard is defense-in-depth — the type system is the first line of defense.
+
+### In the Shell
+
+The shell runs `tsc --noEmit` on your code before executing it. If there are type errors — including capability violations — the code is rejected:
+
+```
+bunshell ts > await write(readOnlyCtx, "/tmp/f", "data")
+error TS2345 (line 1:13): Argument of type 'CapabilityContext<"fs:read">'
+  is not assignable to parameter of type 'RequireCap<"fs:read", "fs:write">'
+1 type error — not executed
+```
+
+---
+
+## Real-Time Syntax Highlighting
+
+The shell highlights code as you type using raw terminal mode. Every keystroke re-renders the current line with ANSI colors.
+
+### Token Colors
+
+| Token | Color | Examples |
+|---|---|---|
+| Keywords | **bold blue** | `const`, `await`, `async`, `function`, `if`, `return` |
+| BunShell APIs | **cyan** | `ls`, `pipe`, `filter`, `hash`, `gitStatus`, `dbOpen` |
+| Capability kinds | **yellow bold** | `"fs:read"`, `"process:spawn"`, `"secret:write"` |
+| Strings | **green** | `"hello"`, `'/tmp/**'`, `` `template` `` |
+| Numbers | **yellow** | `42`, `0xFF`, `3.14`, `100n` |
+| Types | **magenta italic** | `: number`, `: FileEntry[]`, `as string` |
+| Booleans/null | **yellow** | `true`, `false`, `null`, `undefined` |
+| Operators | **dim** | `===`, `=>`, `&&`, `\|\|`, `??` |
+| Comments | **dim** | `// comment`, `/* block */` |
+
+### How It Works Internally
+
+The highlighter (`src/repl/highlight.ts`) uses a segmented regex approach:
+
+1. **Split** input into protected regions (strings, comments) and code regions
+2. **Color** protected regions: strings → green, comments → dim, capability kinds → yellow
+3. **Color** code regions: apply keyword, API, number, type, operator patterns
+4. **Marker system**: uses Unicode PUA characters as placeholders during multi-pass coloring to prevent double-highlighting
+
+The raw terminal (`src/repl/terminal.ts`) handles character-by-character input:
+- `process.stdin.setRawMode(true)` for raw key events
+- Full editing: arrows, home/end, Ctrl+A/E/K/U, backspace, delete
+- History with up/down arrows
+- Tab completion
+- Multi-line input with brace/paren depth tracking
+
+---
+
+## Secret & State Management
+
+### Encrypted Secret Store
+
+API keys and tokens are encrypted at rest with AES-256-GCM. Master key derived from password via PBKDF2 (100,000 iterations, SHA-512).
+
+```typescript
+const { key } = deriveKey("my-secure-password");
+const secrets = createSecretStore(key);
+
+// Store secrets — encrypted immediately
+secrets.set(ctx, "GITHUB_TOKEN", "ghp_xxx...");
+secrets.set(ctx, "AWS_KEY", "AKIA...", { expiresAt: new Date("2025-01-01") });
+
+// Retrieve — decrypted on access, capability-checked
+const token = secrets.get(ctx, "GITHUB_TOKEN");
+
+// Bridge from env vars
+secretFromEnv(ctx, secrets, "OPENAI_API_KEY");
+```
+
+### Security Guarantees
+
+- **Values never in audit logs** — structurally redacted as `[REDACTED]`
+- **Key enumeration respects capability patterns** — `secret:read` for `"GITHUB_*"` can't discover `AWS_KEY` exists
+- **HMAC integrity** on snapshots — tampered data detected on restore
+- **TTL auto-purge** — expired secrets automatically removed
+- **Master key rotation** — re-encrypts all secrets without data loss
+
+### Capability-Gated Access
+
+```typescript
+// Agent with restricted secret access:
+const agentCtx = createContext({
+  capabilities: capabilities()
+    .secretRead(["GITHUB_*"])   // glob: matches GITHUB_TOKEN, GITHUB_WEBHOOK, etc.
+    .netFetch(["api.github.com"])
+    .build().capabilities.slice(),
+});
+
+secrets.get(agentCtx, "GITHUB_TOKEN");      // OK
+secrets.get(agentCtx, "AWS_KEY");           // DENIED — CapabilityError
+secrets.keys(agentCtx);                      // ["GITHUB_TOKEN"] — can't see others
+```
+
+### Auth Helpers
+
+```typescript
+// Bearer token injection from secret store
+const headers = authBearer(ctx, secrets, "GITHUB_TOKEN");
+// { Authorization: "Bearer ghp_xxx..." }
+
+// Authenticated fetch — auth header NEVER in audit logs
+const resp = await authedFetch(ctx, secrets, "GITHUB_TOKEN",
+  "https://api.github.com/user");
+
+// OAuth2 Device Code Flow (headless — no browser on agent side)
+const token = await oauth2DeviceFlow(ctx, {
+  clientId: "Iv1.abc",
+  deviceUrl: "https://github.com/login/device/code",
+  tokenUrl: "https://github.com/login/oauth/access_token",
+  onUserCode: (code, url) => console.log(`Visit ${url}, enter: ${code}`),
+});
+
+// Cookie jar — per-domain session management
+const jar = cookieJar(ctx, state);
+const resp = await jar.fetch(ctx, "https://app.example.com/dashboard");
+```
+
+### Typed State Store
+
+Persistent key-value for auth tokens, session data, anything across executions:
+
+```typescript
+const state = createStateStore();
+
+state.set(ctx, "github.auth", { token: "ghp_xxx", expiresAt: "..." });
+const auth = state.get<GithubAuth>(ctx, "github.auth");
+
+state.keys(ctx, "github.*");  // ["github.auth"]
+await state.save("/data/state.json");  // persist to file
+```
