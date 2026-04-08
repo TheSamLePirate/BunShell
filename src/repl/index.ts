@@ -1,5 +1,5 @@
 /**
- * BunShell REPL — Interactive typed shell.
+ * BunShell TypeScript REPL.
  *
  * @module
  */
@@ -14,6 +14,4 @@ export {
   getCurrentWord,
 } from "./parser";
 export type { ParsedCommand, ParsedPipeline } from "./parser";
-export { COMMANDS, findCommand, FILE_ENTRY_FIELDS } from "./commands";
-export type { CommandDef, ArgDef, FlagDef, ArgType } from "./commands";
 export { formatAuto } from "./format";

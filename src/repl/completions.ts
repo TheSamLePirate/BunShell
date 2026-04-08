@@ -1,27 +1,18 @@
 /**
- * Context-aware autocompletion engine.
+ * TypeScript REPL autocompletion engine.
  *
- * Best practices implemented:
- * - Position-aware: knows if you're typing a command, argument, or flag
- * - File path completion with directory traversal
- * - Flag completion per command (shows only valid flags)
- * - Flag value completion for known value sets
- * - Pipe operator completion after |
- * - Fuzzy prefix matching for commands
- * - Environment variable key completion
+ * Provides context-aware completions for:
+ * - BunShell API functions and types (ls, pipe, filter, ctx, ...)
+ * - Property/method access on objects (ctx.caps., f.name, ...)
+ * - User-defined variables
+ * - File path strings (inside quotes)
+ * - Dot commands (.help, .exit, ...)
  *
  * @module
  */
 
 import { readdirSync, statSync } from "node:fs";
-import { join, dirname, basename, resolve } from "node:path";
-import {
-  COMMANDS,
-  findCommand,
-  FILE_ENTRY_FIELDS,
-  type CommandDef,
-} from "./commands";
-import { getCurrentWord } from "./parser";
+import { join, dirname, resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,14 +20,108 @@ import { getCurrentWord } from "./parser";
 
 type CompleterResult = [completions: string[], partial: string];
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 // ---------------------------------------------------------------------------
-// File path completion
+// Known type shapes for property completion
 // ---------------------------------------------------------------------------
 
-function completeFilePath(partial: string, cwd: string): string[] {
+const FILE_ENTRY_PROPS = [
+  "name",
+  "path",
+  "size",
+  "isDirectory",
+  "isFile",
+  "isSymlink",
+  "permissions",
+  "modifiedAt",
+  "createdAt",
+  "accessedAt",
+  "extension",
+];
+
+const CAPABILITY_CONTEXT_PROPS = ["id", "name", "caps", "audit", "derive"];
+const CAPABILITY_SET_PROPS = [
+  "capabilities",
+  "has",
+  "getAll",
+  "check",
+  "demand",
+];
+const AUDIT_LOGGER_PROPS = [
+  "log",
+  "entries",
+  "query",
+  "flush",
+  "logSuccess",
+  "logDenied",
+  "logError",
+];
+const SPAWN_RESULT_PROPS = [
+  "exitCode",
+  "stdout",
+  "stderr",
+  "success",
+  "duration",
+  "command",
+  "args",
+];
+const GREP_MATCH_PROPS = ["file", "line", "column", "content", "match"];
+const PROCESS_INFO_PROPS = [
+  "pid",
+  "ppid",
+  "name",
+  "command",
+  "user",
+  "cpu",
+  "memory",
+  "state",
+];
+const WRITE_RESULT_PROPS = ["bytesWritten", "path"];
+const DISK_USAGE_PROPS = ["path", "bytes", "human", "files", "directories"];
+const WC_RESULT_PROPS = ["lines", "words", "chars", "bytes"];
+const NET_RESPONSE_PROPS = [
+  "status",
+  "statusText",
+  "headers",
+  "body",
+  "url",
+  "duration",
+];
+const SYSTEM_INFO_PROPS = ["os", "hostname", "release", "arch", "platform"];
+const AGENT_RESULT_PROPS = [
+  "success",
+  "exitCode",
+  "output",
+  "auditTrail",
+  "duration",
+  "error",
+];
+
+const DOT_COMMANDS = [
+  ".help",
+  ".vars",
+  ".caps",
+  ".audit",
+  ".clear",
+  ".exit",
+  ".quit",
+];
+
+// Map known variable names to their property lists
+const KNOWN_SHAPES: Record<string, string[]> = {
+  ctx: CAPABILITY_CONTEXT_PROPS,
+  audit: AUDIT_LOGGER_PROPS,
+};
+
+// ---------------------------------------------------------------------------
+// File path completion (inside strings)
+// ---------------------------------------------------------------------------
+
+function completeFilePath(partial: string): string[] {
   try {
+    const cwd = process.cwd();
     let dir: string;
-
     if (partial === "") {
       dir = cwd;
     } else if (partial.endsWith("/")) {
@@ -44,31 +129,27 @@ function completeFilePath(partial: string, cwd: string): string[] {
     } else {
       dir = resolve(cwd, dirname(partial));
     }
-
     const entries = readdirSync(dir);
     const results: string[] = [];
-
     for (const entry of entries) {
-      // Skip hidden files unless user started typing a dot
-      const partialBase = basename(partial || ".");
-      if (entry.startsWith(".") && !partialBase.startsWith(".")) continue;
-
+      if (
+        entry.startsWith(".") &&
+        !partial.endsWith("/.") &&
+        !partial.startsWith(".")
+      )
+        continue;
       const fullEntry = partial.includes("/")
         ? join(dirname(partial), entry)
         : entry;
-
       if (fullEntry.startsWith(partial) || partial === "") {
-        // Add trailing / for directories
         try {
-          const fullPath = resolve(cwd, fullEntry);
-          const s = statSync(fullPath);
+          const s = statSync(resolve(cwd, fullEntry));
           results.push(s.isDirectory() ? fullEntry + "/" : fullEntry);
         } catch {
           results.push(fullEntry);
         }
       }
     }
-
     return results.sort();
   } catch {
     return [];
@@ -76,67 +157,88 @@ function completeFilePath(partial: string, cwd: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Command completion
+// Detect property access type from runtime values
 // ---------------------------------------------------------------------------
 
-function completeCommand(partial: string, inPipe: boolean): string[] {
-  const available = inPipe
-    ? COMMANDS.filter((c) => c.category === "pipe" || c.category === "shell")
-    : COMMANDS;
+function getPropsForValue(value: any): string[] {
+  if (value === null || value === undefined) return [];
 
-  const matches = available
-    .filter(
-      (c) =>
-        c.name.startsWith(partial) ||
-        (c.aliases?.some((a) => a.startsWith(partial)) ?? false),
-    )
-    .map((c) => c.name);
+  if (Array.isArray(value)) {
+    return [
+      "length",
+      "filter",
+      "map",
+      "reduce",
+      "find",
+      "some",
+      "every",
+      "forEach",
+      "slice",
+      "sort",
+      "reverse",
+      "concat",
+      "join",
+      "flat",
+      "flatMap",
+      "includes",
+      "indexOf",
+      "at",
+      "push",
+      "pop",
+    ];
+  }
 
-  return matches.sort();
-}
+  if (typeof value === "string") {
+    return [
+      "length",
+      "trim",
+      "split",
+      "replace",
+      "includes",
+      "startsWith",
+      "endsWith",
+      "slice",
+      "substring",
+      "indexOf",
+      "toLowerCase",
+      "toUpperCase",
+      "match",
+      "search",
+      "padStart",
+      "padEnd",
+      "repeat",
+      "at",
+    ];
+  }
 
-// ---------------------------------------------------------------------------
-// Flag completion
-// ---------------------------------------------------------------------------
+  if (typeof value === "object") {
+    // Detect known BunShell types
+    if ("caps" in value && "derive" in value) return CAPABILITY_CONTEXT_PROPS;
+    if ("capabilities" in value && "has" in value && "demand" in value)
+      return CAPABILITY_SET_PROPS;
+    if ("entries" in value && "query" in value && "flush" in value)
+      return AUDIT_LOGGER_PROPS;
+    if ("exitCode" in value && "stdout" in value) return SPAWN_RESULT_PROPS;
+    if ("isFile" in value && "permissions" in value) return FILE_ENTRY_PROPS;
+    if ("line" in value && "match" in value && "content" in value)
+      return GREP_MATCH_PROPS;
+    if ("pid" in value && "cpu" in value) return PROCESS_INFO_PROPS;
+    if ("bytesWritten" in value) return WRITE_RESULT_PROPS;
+    if ("bytes" in value && "human" in value && "files" in value)
+      return DISK_USAGE_PROPS;
+    if ("lines" in value && "words" in value && "chars" in value)
+      return WC_RESULT_PROPS;
+    if ("status" in value && "statusText" in value && "body" in value)
+      return NET_RESPONSE_PROPS;
+    if ("os" in value && "arch" in value && "platform" in value)
+      return SYSTEM_INFO_PROPS;
+    if ("success" in value && "auditTrail" in value) return AGENT_RESULT_PROPS;
 
-function completeFlag(partial: string, cmd: CommandDef): string[] {
-  const flagPrefix = partial.startsWith("--")
-    ? partial.slice(2)
-    : partial.slice(1);
+    // Fallback: enumerate own keys
+    return Object.keys(value);
+  }
 
-  return cmd.flags
-    .filter((f) => f.name.startsWith(flagPrefix))
-    .map((f) => `--${f.name}${f.hasValue ? "=" : ""}`)
-    .sort();
-}
-
-function completeFlagValue(
-  flagName: string,
-  partial: string,
-  cmd: CommandDef,
-): string[] {
-  const flag = cmd.flags.find((f) => f.name === flagName);
-  if (!flag?.values) return [];
-  return flag.values.filter((v) => v.startsWith(partial)).map(String);
-}
-
-// ---------------------------------------------------------------------------
-// Env key completion
-// ---------------------------------------------------------------------------
-
-function completeEnvKey(partial: string): string[] {
-  return Object.keys(process.env)
-    .filter((k) => k.startsWith(partial.toUpperCase()) || k.startsWith(partial))
-    .sort()
-    .slice(0, 30);
-}
-
-// ---------------------------------------------------------------------------
-// Field name completion (for pipe operators)
-// ---------------------------------------------------------------------------
-
-function completeField(partial: string): string[] {
-  return FILE_ENTRY_FIELDS.filter((f) => f.startsWith(partial)).map(String);
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -144,117 +246,121 @@ function completeField(partial: string): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Create the completer function for readline.
- *
- * @example
- * ```ts
- * const rl = createInterface({
- *   input: stdin,
- *   output: stdout,
- *   completer: createCompleter(process.cwd()),
- * });
- * ```
+ * Create a completer for the TypeScript REPL.
  */
 export function createCompleter(
-  getCwd: () => string,
+  scope: Record<string, any>,
+  userVars: Record<string, any>,
 ): (line: string) => CompleterResult {
   return (line: string): CompleterResult => {
-    const cwd = getCwd();
+    const trimmed = line.trimStart();
 
-    // Check if we're in a pipe segment
-    const lastPipe = line.lastIndexOf("|");
-    const inPipe = lastPipe !== -1;
-    const segment = inPipe ? line.slice(lastPipe + 1).trimStart() : line;
-
-    const { word, tokens, tokenIndex } = getCurrentWord(segment);
-
-    // --- Position 0: completing a command name ---
-    if (tokenIndex === 0) {
-      const matches = completeCommand(word, inPipe);
-      if (matches.length === 0) return [[], word];
-
-      // If in pipe, prepend the prefix
-      if (inPipe) {
-        const prefix = line.slice(0, lastPipe + 1) + " ";
-        return [matches.map((m) => prefix + m), line];
-      }
-      return [matches, word];
+    // --- Dot commands ---
+    if (trimmed.startsWith(".")) {
+      const matches = DOT_COMMANDS.filter((c) => c.startsWith(trimmed));
+      return [matches, trimmed];
     }
 
-    // --- We have a command, complete its arguments ---
-    const cmdName = tokens[0] ?? "";
-    const cmd = findCommand(cmdName);
-    if (!cmd) return [[], word];
-
-    // Completing a flag
-    if (word.startsWith("-")) {
-      const matches = completeFlag(word, cmd);
-      if (inPipe) {
-        const prefix = line.slice(0, line.length - word.length);
-        return [matches.map((m) => prefix + m), line];
+    // --- Inside a string literal? Complete file paths ---
+    const lastQuote = Math.max(line.lastIndexOf('"'), line.lastIndexOf("'"));
+    if (lastQuote !== -1) {
+      // Count quotes to see if we're inside one
+      const beforeCursor = line;
+      let singleCount = 0;
+      let doubleCount = 0;
+      for (const ch of beforeCursor) {
+        if (ch === "'") singleCount++;
+        if (ch === '"') doubleCount++;
       }
-      return [matches, word];
+      // If odd number of quotes, we're inside a string
+      if (singleCount % 2 === 1 || doubleCount % 2 === 1) {
+        const partial = line.slice(lastQuote + 1);
+        const paths = completeFilePath(partial);
+        // Reconstruct with the path inserted
+        const prefix = line.slice(0, lastQuote + 1);
+        return [paths.map((p) => prefix + p), line];
+      }
     }
 
-    // Completing a flag value (--flag=partial)
-    const prevToken = tokens[tokenIndex - 1];
-    if (prevToken && prevToken.startsWith("--") && prevToken.includes("=")) {
-      const flagName = prevToken.slice(2, prevToken.indexOf("="));
-      const matches = completeFlagValue(flagName, word, cmd);
-      return [matches, word];
+    // --- Property access: foo.bar ---
+    const dotMatch = trimmed.match(/(\w+(?:\.\w+)*)\.(\w*)$/);
+    if (dotMatch) {
+      const objPath = dotMatch[1]!;
+      const partial = dotMatch[2]!;
+
+      // Try to resolve the object from userVars or scope
+      const rootVar = objPath.split(".")[0]!;
+      let obj =
+        userVars[rootVar] !== undefined ? userVars[rootVar] : scope[rootVar];
+
+      // Walk the property chain
+      const pathParts = objPath.split(".").slice(1);
+      for (const part of pathParts) {
+        if (obj == null) break;
+        obj = obj[part];
+      }
+
+      let props: string[];
+      if (obj != null) {
+        props = getPropsForValue(obj);
+      } else {
+        // Fallback: use known shapes
+        props = KNOWN_SHAPES[objPath] ?? [];
+      }
+
+      const matches = props
+        .filter((p) => p.startsWith(partial))
+        .map((p) => objPath + "." + p);
+
+      // Return completions relative to the full line
+      const prefix = line.slice(
+        0,
+        line.length - (objPath.length + 1 + partial.length),
+      );
+      return [matches.map((m) => prefix + m), line];
     }
 
-    // Determine which positional arg we're on
-    const positionalIndex = tokens
-      .slice(1, tokenIndex)
-      .filter((t) => !t.startsWith("-")).length;
+    // --- Variable / function name completion ---
+    const wordMatch = trimmed.match(/(\w*)$/);
+    const partial = wordMatch ? wordMatch[1]! : "";
 
-    const argDef = cmd.args[positionalIndex];
+    // Combine scope + user vars
+    const allNames = [
+      ...Object.keys(scope),
+      ...Object.keys(userVars),
+      "await",
+      "const",
+      "let",
+      "async",
+      "function",
+      "if",
+      "else",
+      "for",
+      "while",
+      "return",
+      "true",
+      "false",
+      "null",
+      "undefined",
+      "typeof",
+      "instanceof",
+      "new",
+      "import",
+      "from",
+      "export",
+    ];
 
-    if (!argDef) {
-      // Extra args — try file path as fallback
-      const paths = completeFilePath(word, cwd);
-      return [paths, word];
-    }
+    const uniqueNames = [...new Set(allNames)];
+    const matches = uniqueNames
+      .filter((n) => n.startsWith(partial) && n !== partial)
+      .sort();
 
-    // Complete based on argument type
-    switch (argDef.type) {
-      case "path": {
-        const paths = completeFilePath(word, cwd);
-        return [paths, word];
-      }
-      case "key": {
-        const keys = completeEnvKey(word);
-        return [keys, word];
-      }
-      case "command": {
-        // For 'exec' command, complete against command names
-        const commands = completeCommand(word, false);
-        return [commands, word];
-      }
-      case "string": {
-        // For pipe operators like sortby, pluck — complete field names
-        if (cmd.category === "pipe") {
-          const fields = completeField(word);
-          return [fields, word];
-        }
-        return [[], word];
-      }
-      case "signal": {
-        const signals = [
-          "SIGTERM",
-          "SIGKILL",
-          "SIGINT",
-          "SIGHUP",
-          "SIGUSR1",
-          "SIGUSR2",
-          "SIGSTOP",
-          "SIGCONT",
-        ].filter((s) => s.startsWith(word.toUpperCase()));
-        return [signals, word];
-      }
-      default:
-        return [[], word];
-    }
+    if (matches.length === 0) return [[], partial];
+
+    // Preserve the line prefix before the word
+    const prefix = line.slice(0, line.length - partial.length);
+    return [matches.map((m) => prefix + m), line];
   };
 }
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
