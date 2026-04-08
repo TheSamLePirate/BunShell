@@ -14,7 +14,19 @@ import type {
   DiskUsage,
   WriteResult,
 } from "./types";
-import { readdir, stat as fsStat, lstat } from "node:fs/promises";
+import {
+  readdir,
+  stat as fsStat,
+  lstat,
+  chmod as fsChmod,
+  symlink as fsSymlink,
+  readlink as fsReadlink,
+  utimes,
+  appendFile,
+  truncate as fsTruncate,
+  realpath as fsRealpath,
+} from "node:fs/promises";
+import { watch as fsWatch } from "node:fs";
 import { join, extname, basename, resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -502,4 +514,255 @@ export async function du(
     files,
     directories,
   };
+}
+
+// ---------------------------------------------------------------------------
+// chmod
+// ---------------------------------------------------------------------------
+
+/**
+ * Change file permissions.
+ *
+ * @example
+ * ```ts
+ * await chmod(ctx, "/tmp/script.sh", 0o755);
+ * ```
+ */
+export async function chmod(
+  ctx: CapabilityContext,
+  path: string,
+  mode: number,
+): Promise<void> {
+  const absPath = resolve(path);
+  ctx.caps.demand({ kind: "fs:write", pattern: absPath });
+  ctx.audit.log("fs:write", { op: "chmod", path: absPath, mode });
+  await fsChmod(absPath, mode);
+}
+
+// ---------------------------------------------------------------------------
+// symlink / readlink
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a symbolic link.
+ *
+ * @example
+ * ```ts
+ * await createSymlink(ctx, "/tmp/data", "/tmp/data-link");
+ * ```
+ */
+export async function createSymlink(
+  ctx: CapabilityContext,
+  target: string,
+  path: string,
+): Promise<void> {
+  const absTarget = resolve(target);
+  const absPath = resolve(path);
+  ctx.caps.demand({ kind: "fs:read", pattern: absTarget });
+  ctx.caps.demand({ kind: "fs:write", pattern: absPath });
+  ctx.audit.log("fs:write", {
+    op: "symlink",
+    target: absTarget,
+    path: absPath,
+  });
+  await fsSymlink(absTarget, absPath);
+}
+
+/**
+ * Read the target of a symbolic link.
+ *
+ * @example
+ * ```ts
+ * const target = await readLink(ctx, "/tmp/data-link");
+ * ```
+ */
+export async function readLink(
+  ctx: CapabilityContext,
+  path: string,
+): Promise<string> {
+  const absPath = resolve(path);
+  ctx.caps.demand({ kind: "fs:read", pattern: absPath });
+  ctx.audit.log("fs:read", { op: "readlink", path: absPath });
+  return fsReadlink(absPath, "utf-8");
+}
+
+// ---------------------------------------------------------------------------
+// touch
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a file or update its timestamps.
+ *
+ * @example
+ * ```ts
+ * await touch(ctx, "/tmp/marker");
+ * ```
+ */
+export async function touch(
+  ctx: CapabilityContext,
+  path: string,
+): Promise<void> {
+  const absPath = resolve(path);
+  ctx.caps.demand({ kind: "fs:write", pattern: absPath });
+  ctx.audit.log("fs:write", { op: "touch", path: absPath });
+
+  try {
+    const now = new Date();
+    await utimes(absPath, now, now);
+  } catch {
+    await Bun.write(absPath, "");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// append
+// ---------------------------------------------------------------------------
+
+/**
+ * Append data to a file.
+ *
+ * @example
+ * ```ts
+ * await append(ctx, "/tmp/log.txt", "new line\n");
+ * ```
+ */
+export async function append(
+  ctx: CapabilityContext,
+  path: string,
+  data: string | Uint8Array,
+): Promise<void> {
+  const absPath = resolve(path);
+  ctx.caps.demand({ kind: "fs:write", pattern: absPath });
+  ctx.audit.log("fs:write", { op: "append", path: absPath });
+  await appendFile(absPath, data);
+}
+
+// ---------------------------------------------------------------------------
+// truncate
+// ---------------------------------------------------------------------------
+
+/**
+ * Truncate a file to a given size (default 0).
+ *
+ * @example
+ * ```ts
+ * await truncate(ctx, "/tmp/log.txt");
+ * await truncate(ctx, "/tmp/data.bin", 1024);
+ * ```
+ */
+export async function truncate(
+  ctx: CapabilityContext,
+  path: string,
+  size: number = 0,
+): Promise<void> {
+  const absPath = resolve(path);
+  ctx.caps.demand({ kind: "fs:write", pattern: absPath });
+  ctx.audit.log("fs:write", { op: "truncate", path: absPath, size });
+  await fsTruncate(absPath, size);
+}
+
+// ---------------------------------------------------------------------------
+// realpath
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a path to its real location, following all symlinks.
+ *
+ * @example
+ * ```ts
+ * const real = await realPath(ctx, "/tmp/link");
+ * ```
+ */
+export async function realPath(
+  ctx: CapabilityContext,
+  path: string,
+): Promise<string> {
+  const absPath = resolve(path);
+  ctx.caps.demand({ kind: "fs:read", pattern: absPath });
+  ctx.audit.log("fs:read", { op: "realpath", path: absPath });
+  return fsRealpath(absPath, "utf-8");
+}
+
+// ---------------------------------------------------------------------------
+// watch
+// ---------------------------------------------------------------------------
+
+/** Event emitted by a file watcher. */
+export interface WatchEvent {
+  readonly type: "rename" | "change";
+  readonly filename: string | null;
+}
+
+/**
+ * Watch a file or directory for changes.
+ *
+ * @example
+ * ```ts
+ * const watcher = watchPath(ctx, "/tmp/data", (event) => {
+ *   console.log(event.type, event.filename);
+ * });
+ * watcher.close();
+ * ```
+ */
+export function watchPath(
+  ctx: CapabilityContext,
+  path: string,
+  callback: (event: WatchEvent) => void,
+  options?: { readonly recursive?: boolean },
+): { close(): void } {
+  const absPath = resolve(path);
+  ctx.caps.demand({ kind: "fs:read", pattern: absPath });
+  ctx.audit.log("fs:read", { op: "watch", path: absPath });
+
+  const watcher = fsWatch(
+    absPath,
+    { recursive: options?.recursive ?? false },
+    (eventType, filename) => {
+      callback({
+        type: eventType as "rename" | "change",
+        filename: filename ?? null,
+      });
+    },
+  );
+
+  return {
+    close() {
+      watcher.close();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// glob
+// ---------------------------------------------------------------------------
+
+/**
+ * Find files matching a glob pattern. Returns absolute paths.
+ * Respects capability checks on each matched file.
+ *
+ * @example
+ * ```ts
+ * const tsFiles = await globFiles(ctx, "src/**\/*.ts");
+ * ```
+ */
+export async function globFiles(
+  ctx: CapabilityContext,
+  pattern: string,
+  cwd?: string,
+): Promise<string[]> {
+  const absBase = resolve(cwd ?? ".");
+  ctx.caps.demand({ kind: "fs:read", pattern: absBase });
+  ctx.audit.log("fs:read", { op: "glob", pattern, cwd: absBase });
+
+  const glob = new Bun.Glob(pattern);
+  const results: string[] = [];
+
+  for await (const match of glob.scan({ cwd: absBase, absolute: true })) {
+    const check = ctx.caps.check({ kind: "fs:read", pattern: match });
+    if (check.allowed) {
+      results.push(match);
+    }
+  }
+
+  return results.sort();
 }
