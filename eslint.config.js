@@ -11,6 +11,13 @@ export default tseslint.config(
     },
   },
   {
+    files: ["tests/agent/fixtures/escape-*.ts"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+      "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
+  {
     ignores: ["dist/", "node_modules/"],
   },
 );

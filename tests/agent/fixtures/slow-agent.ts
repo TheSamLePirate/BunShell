@@ -1,4 +1,4 @@
-import type { CapabilityContext } from "../../../src/capabilities/types";
+import type { CapabilityContext } from "bunshell";
 
 export default async function (_ctx: CapabilityContext) {
   // This agent takes too long and should be killed by timeout

@@ -109,6 +109,10 @@ export async function ls(
 
       const fullPath = join(dir, name);
 
+      // Check capability for every discovered path (prevents traversal bypass)
+      const check = ctx.caps.check({ kind: "fs:read", pattern: fullPath });
+      if (!check.allowed) continue;
+
       if (globMatcher && !globMatcher.match(name)) {
         // Still recurse into directories if recursive
         if (options?.recursive) {
@@ -336,6 +340,12 @@ export async function rm(
 ): Promise<void> {
   const absPath = resolve(path);
   ctx.caps.demand({ kind: "fs:delete", pattern: absPath });
+
+  // For recursive deletes, demand wildcard access to everything underneath
+  if (options?.recursive) {
+    ctx.caps.demand({ kind: "fs:delete", pattern: absPath + "/**" });
+  }
+
   ctx.audit.log("fs:delete", { op: "rm", path: absPath, options });
   const { rm: fsRm } = await import("node:fs/promises");
   await fsRm(absPath, { recursive: options?.recursive ?? false, force: true });
@@ -362,6 +372,18 @@ export async function cp(
   const absDest = resolve(dest);
   ctx.caps.demand({ kind: "fs:read", pattern: absSrc });
   ctx.caps.demand({ kind: "fs:write", pattern: absDest });
+
+  // For directories, demand wildcard access to everything underneath
+  try {
+    const s = await fsStat(absSrc);
+    if (s.isDirectory()) {
+      ctx.caps.demand({ kind: "fs:read", pattern: absSrc + "/**" });
+      ctx.caps.demand({ kind: "fs:write", pattern: absDest + "/**" });
+    }
+  } catch {
+    // Source doesn't exist — will fail at fsCp
+  }
+
   ctx.audit.log("fs:read", { op: "cp:read", path: absSrc });
   ctx.audit.log("fs:write", { op: "cp:write", path: absDest });
   const { cp: fsCp } = await import("node:fs/promises");
@@ -444,6 +466,11 @@ export async function du(
     const items = await readdir(dir);
     for (const name of items) {
       const fullPath = join(dir, name);
+
+      // Check capability for every discovered path (prevents traversal bypass)
+      const check = ctx.caps.check({ kind: "fs:read", pattern: fullPath });
+      if (!check.allowed) continue;
+
       try {
         const s = await fsStat(fullPath);
         if (s.isDirectory()) {

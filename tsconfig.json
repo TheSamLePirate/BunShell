@@ -20,5 +20,6 @@
     "outDir": "./dist",
     "rootDir": "."
   },
-  "include": ["src/**/*.ts", "examples/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "examples/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["tests/agent/fixtures/**"]
 }

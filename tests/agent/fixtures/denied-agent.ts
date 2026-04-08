@@ -1,5 +1,5 @@
-import type { CapabilityContext } from "../../../src/capabilities/types";
-import { ls } from "../../../src/wrappers/fs";
+import type { CapabilityContext } from "bunshell";
+import { ls } from "bunshell";
 
 export default async function (ctx: CapabilityContext) {
   // This agent tries to read /etc which it doesn't have access to
