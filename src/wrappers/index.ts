@@ -132,3 +132,22 @@ export type {
   GitDiffEntry,
   GitBranches,
 } from "./git";
+
+// OS integration
+export { openUrl, openFile, notify, clipboard } from "./os";
+export type { ClipboardHandle } from "./os";
+
+// Scheduling
+export {
+  sleep,
+  interval,
+  timeout,
+  debounce,
+  throttle,
+  retry,
+} from "./schedule";
+export type { IntervalHandle, TimeoutHandle } from "./schedule";
+
+// User/group
+export { currentUser, users, groups } from "./user";
+export type { CurrentUser, UserEntry, GroupEntry } from "./user";
