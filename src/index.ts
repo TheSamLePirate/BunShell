@@ -11,3 +11,4 @@
 export * from "./capabilities/index";
 export * from "./wrappers/index";
 export * from "./pipe/index";
+export * from "./audit/index";
