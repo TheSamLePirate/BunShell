@@ -4,7 +4,12 @@
   "description": "Typed agent shell system — TypeScript types as permissions",
   "type": "module",
   "main": "src/index.ts",
+  "bin": {
+    "bunshell": "bin/bunshell.ts"
+  },
   "scripts": {
+    "shell": "bun run bin/bunshell.ts",
+    "shell:audit": "bun run bin/bunshell.ts --audit",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "tsc --noEmit && bun test"
