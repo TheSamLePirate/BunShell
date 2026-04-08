@@ -22,10 +22,16 @@ export type Completer = (
 ) => [completions: string[], partial: string];
 
 /** Options for the terminal. */
+/** Pre-check callback — called with current buffer, returns true if code is valid. */
+export type PreChecker = (code: string) => Promise<boolean>;
+
 export interface TerminalOptions {
   readonly prompt: string;
   readonly onLine: LineHandler;
   readonly completer?: Completer;
+  readonly preCheck?: PreChecker;
+  /** Debounce delay for pre-check in ms (default: 300). */
+  readonly preCheckDelay?: number;
   readonly onClose?: () => void;
   readonly history?: string[];
 }
@@ -75,7 +81,6 @@ export interface Terminal {
  * ```
  */
 export function createTerminal(options: TerminalOptions): Terminal {
-  let prompt = options.prompt;
   let buffer = "";
   let cursor = 0;
   let historyIndex = -1;
@@ -89,6 +94,59 @@ export function createTerminal(options: TerminalOptions): Terminal {
   let inMultiLine = false;
   const multiLinePrompt = "\x1b[36m...\x1b[0m ";
 
+  // Pre-check status: controls "bunshell" color in prompt
+  type PromptStatus = "ok" | "error" | "idle";
+  let promptStatus: PromptStatus = "idle";
+  let preCheckTimer: ReturnType<typeof setTimeout> | null = null;
+  let preCheckVersion = 0; // prevents stale results from overwriting fresh ones
+  const preCheckDelay = options.preCheckDelay ?? 300;
+
+  function buildPrompt(): string {
+    const statusColor =
+      promptStatus === "error"
+        ? "\x1b[31m" // red
+        : promptStatus === "ok"
+          ? "\x1b[32m" // green
+          : "\x1b[36m"; // cyan (idle/unknown)
+    return `${statusColor}bunshell\x1b[0m \x1b[35mts\x1b[0m \x1b[32m>\x1b[0m `;
+  }
+
+  function schedulePreCheck(): void {
+    if (!options.preCheck) return;
+    const code = inMultiLine ? multiLineBuffer + "\n" + buffer : buffer;
+    if (code.trim().length === 0 || code.trim().startsWith(".")) {
+      // Empty or dot-command — reset to idle
+      if (promptStatus !== "idle") {
+        promptStatus = "idle";
+        render();
+      }
+      return;
+    }
+
+    if (preCheckTimer) clearTimeout(preCheckTimer);
+    preCheckVersion++;
+    const thisVersion = preCheckVersion;
+
+    preCheckTimer = setTimeout(async () => {
+      try {
+        const pass = await options.preCheck!(code);
+        // Only update if no newer check has been scheduled
+        if (thisVersion === preCheckVersion) {
+          const newStatus: PromptStatus = pass ? "ok" : "error";
+          if (promptStatus !== newStatus) {
+            promptStatus = newStatus;
+            render();
+          }
+        }
+      } catch {
+        if (thisVersion === preCheckVersion && promptStatus !== "error") {
+          promptStatus = "error";
+          render();
+        }
+      }
+    }, preCheckDelay);
+  }
+
   // Enter raw mode
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true);
@@ -97,7 +155,7 @@ export function createTerminal(options: TerminalOptions): Terminal {
   process.stdin.setEncoding("utf-8");
 
   function currentPrompt(): string {
-    return inMultiLine ? multiLinePrompt : prompt;
+    return inMultiLine ? multiLinePrompt : buildPrompt();
   }
 
   function render(): void {
@@ -113,6 +171,7 @@ export function createTerminal(options: TerminalOptions): Terminal {
     buffer = buffer.slice(0, cursor) + ch + buffer.slice(cursor);
     cursor += ch.length;
     render();
+    schedulePreCheck();
   }
 
   function backspace(): void {
@@ -120,6 +179,7 @@ export function createTerminal(options: TerminalOptions): Terminal {
       buffer = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
       cursor--;
       render();
+      schedulePreCheck();
     }
   }
 
@@ -127,6 +187,7 @@ export function createTerminal(options: TerminalOptions): Terminal {
     if (cursor < buffer.length) {
       buffer = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
       render();
+      schedulePreCheck();
     }
   }
 
@@ -157,12 +218,14 @@ export function createTerminal(options: TerminalOptions): Terminal {
   function killLine(): void {
     buffer = buffer.slice(0, cursor);
     render();
+    schedulePreCheck();
   }
 
   function killToStart(): void {
     buffer = buffer.slice(cursor);
     cursor = 0;
     render();
+    schedulePreCheck();
   }
 
   function historyUp(): void {
@@ -178,6 +241,7 @@ export function createTerminal(options: TerminalOptions): Terminal {
     buffer = history[historyIndex]!;
     cursor = buffer.length;
     render();
+    schedulePreCheck();
   }
 
   function historyDown(): void {
@@ -191,6 +255,7 @@ export function createTerminal(options: TerminalOptions): Terminal {
     }
     cursor = buffer.length;
     render();
+    schedulePreCheck();
   }
 
   function handleTab(): void {
@@ -237,6 +302,11 @@ export function createTerminal(options: TerminalOptions): Terminal {
     buffer = "";
     cursor = 0;
     historyIndex = -1;
+    promptStatus = "idle";
+    if (preCheckTimer) {
+      clearTimeout(preCheckTimer);
+      preCheckTimer = null;
+    }
 
     if (inMultiLine) {
       multiLineBuffer += "\n" + line;
@@ -429,8 +499,8 @@ export function createTerminal(options: TerminalOptions): Terminal {
       process.stdout.write(`${CURSOR_SAVE}\n${text}${CURSOR_RESTORE}`);
     },
 
-    setPrompt(p: string): void {
-      prompt = p;
+    setPrompt(_p: string): void {
+      // Prompt is now dynamically built from status — setPrompt is a no-op
       render();
     },
 

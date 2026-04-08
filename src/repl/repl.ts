@@ -402,12 +402,25 @@ export async function startRepl(options?: ReplOptions): Promise<void> {
     }
   }
 
-  // Create raw terminal with real-time highlighting
+  // Pre-check: run tsc in background to update prompt color
+  async function preCheck(code: string): Promise<boolean> {
+    if (code.trim().length === 0 || code.trim().startsWith(".")) return true;
+    try {
+      const result = await typeCheck(code, contextKinds);
+      return result.pass;
+    } catch {
+      return false;
+    }
+  }
+
+  // Create raw terminal with real-time highlighting + live type checking
   const completer = createCompleter(scope, userVars);
   const term = createTerminal({
     prompt: `${C.cyan}bunshell${C.reset} ${C.magenta}ts${C.reset} ${C.green}>${C.reset} `,
     onLine: handleLine,
     completer,
+    preCheck,
+    preCheckDelay: 400,
     history,
     onClose: () => {
       saveHistory(history);
