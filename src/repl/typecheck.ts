@@ -10,7 +10,6 @@
 
 import { resolve, join } from "node:path";
 import { writeFileSync, unlinkSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
 import type { CapabilityKind } from "../capabilities/types";
 
 // ---------------------------------------------------------------------------
@@ -37,10 +36,10 @@ export interface TypeCheckResult {
 // ---------------------------------------------------------------------------
 
 const PROJECT_ROOT = resolve(import.meta.dir, "../..");
-const TSCONFIG_PATH = join(PROJECT_ROOT, "tsconfig.json");
-const TMP_DIR = join(tmpdir(), "bunshell-typecheck");
+// Temp files MUST be inside the project (rootDir constraint)
+const TMP_DIR = join(PROJECT_ROOT, ".typecheck-tmp");
 
-// Ensure tmp dir exists
+// Ensure tmp dir exists and is gitignored
 try {
   mkdirSync(TMP_DIR, { recursive: true });
 } catch {
@@ -186,12 +185,38 @@ export async function typeCheck(
   // Wrap user code in async IIFE to allow top-level await
   const fullCode = `${preamble}\n(async () => {\n${code}\n})();\n`;
 
-  // Write temp file
-  const tmpFile = join(TMP_DIR, `check-${Date.now()}.ts`);
+  // Write temp .ts file and a temp tsconfig that only includes it
+  const stamp = Date.now();
+  const tmpFile = join(TMP_DIR, `check-${stamp}.ts`);
+  const tmpTsconfig = join(TMP_DIR, `tsconfig-${stamp}.json`);
+
   writeFileSync(tmpFile, fullCode);
+  // Temp tsconfig: extends the main one but ONLY includes our temp file.
+  // Must use absolute path for include (relative is to tsconfig location).
+  // Must override exclude to NOT exclude .typecheck-tmp.
+  writeFileSync(
+    tmpTsconfig,
+    JSON.stringify({
+      compilerOptions: {
+        target: "ESNext",
+        module: "ESNext",
+        moduleResolution: "bundler",
+        types: ["bun-types"],
+        strict: true,
+        noUncheckedIndexedAccess: true,
+        exactOptionalPropertyTypes: true,
+        noEmit: true,
+        esModuleInterop: true,
+        skipLibCheck: true,
+        rootDir: PROJECT_ROOT,
+      },
+      include: [tmpFile],
+      exclude: [],
+    }),
+  );
 
   try {
-    // Run tsc
+    // Run tsc with the temp tsconfig — only checks our temp file
     const proc = Bun.spawn(
       [
         "bunx",
@@ -200,10 +225,9 @@ export async function typeCheck(
         "--pretty",
         "false",
         "--project",
-        TSCONFIG_PATH,
-        tmpFile,
+        tmpTsconfig,
       ],
-      { stdout: "pipe", stderr: "pipe" },
+      { stdout: "pipe", stderr: "pipe", cwd: PROJECT_ROOT },
     );
 
     const stdout = await new Response(proc.stdout).text();
@@ -217,12 +241,16 @@ export async function typeCheck(
       return { pass: true, errors: [], duration };
     }
 
-    // Parse tsc errors
+    // Parse tsc errors — only keep errors from our temp file
     const errors: TypeCheckError[] = [];
     const errorLines = output.trim().split("\n");
+    const tmpBasename = `check-${stamp}.ts`;
 
     for (const line of errorLines) {
-      // Format: filename(line,col): error TSxxxx: message
+      // Only parse errors from our temp file (ignore errors in other files)
+      if (!line.includes(tmpBasename)) continue;
+
+      // Format: path/filename(line,col): error TSxxxx: message
       const match = line.match(/\((\d+),(\d+)\):\s*(error\s+TS\d+):\s*(.+)/);
       if (match) {
         const tscLine = parseInt(match[1]!, 10);
@@ -240,11 +268,15 @@ export async function typeCheck(
 
     return { pass: errors.length === 0, errors, duration };
   } finally {
-    // Cleanup temp file
     try {
       unlinkSync(tmpFile);
     } catch {
-      // ignore
+      /* ignore */
+    }
+    try {
+      unlinkSync(tmpTsconfig);
+    } catch {
+      /* ignore */
     }
   }
 }
