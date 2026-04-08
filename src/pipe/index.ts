@@ -60,3 +60,11 @@ export {
   fromReadable,
   fromLines,
 } from "./stream";
+
+// Visualization sinks
+export { toTable, toBarChart, toSparkline, toHistogram } from "./visualize";
+export type {
+  TableOptions,
+  BarChartOptions,
+  HistogramOptions,
+} from "./visualize";
