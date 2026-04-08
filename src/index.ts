@@ -9,3 +9,4 @@
  */
 
 export * from "./capabilities/index";
+export * from "./wrappers/index";
