@@ -26,8 +26,10 @@ import { createDockerTool } from "./src/tools/docker";
 // Extension entry point
 // ---------------------------------------------------------------------------
 
-let opCount = 0;
-const capsWidget: ReturnType<typeof createCapsWidgetFactory> | null = null;
+const state = {
+  opCount: 0,
+  capsWidget: null as ReturnType<typeof createCapsWidgetFactory> | null,
+};
 
 export default function bunshellExtension(pi: ExtensionAPI) {
   // -------------------------------------------------------------------
@@ -35,7 +37,7 @@ export default function bunshellExtension(pi: ExtensionAPI) {
   // -------------------------------------------------------------------
 
   pi.on("session_start", async (_event, ctx) => {
-    opCount = 0;
+    state.opCount = 0;
 
     const env = await bootstrap(ctx.cwd);
     if (!env) {
@@ -82,8 +84,8 @@ export default function bunshellExtension(pi: ExtensionAPI) {
     ctx.ui.setStatus("bunshell", formatStatus(env, 0));
 
     // Capability widget (pi-tui component)
-    capsWidget = createCapsWidgetFactory(env);
-    ctx.ui.setWidget("bunshell-caps", capsWidget.factory as never, {
+    state.capsWidget = createCapsWidgetFactory(env);
+    ctx.ui.setWidget("bunshell-caps", state.capsWidget.factory as never, {
       placement: "belowEditor",
     });
 
@@ -117,8 +119,8 @@ export default function bunshellExtension(pi: ExtensionAPI) {
       (event as { input?: { action?: string } }).input?.action ?? "...";
     ctx.ui.setStatus("bunshell", `● ${env.name} │ ${action}...`);
 
-    if (capsWidget) {
-      capsWidget.setLastAction(action);
+    if (state.capsWidget) {
+      state.capsWidget.setLastAction(action);
     }
   });
 
@@ -126,12 +128,12 @@ export default function bunshellExtension(pi: ExtensionAPI) {
     const env = getEnv();
     if (!env) return;
 
-    opCount++;
-    ctx.ui.setStatus("bunshell", formatStatus(env, opCount));
+    state.opCount++;
+    ctx.ui.setStatus("bunshell", formatStatus(env, state.opCount));
 
-    if (capsWidget) {
-      capsWidget.setOpCount(opCount);
-      capsWidget.setLastAction("");
+    if (state.capsWidget) {
+      state.capsWidget.setOpCount(state.opCount);
+      state.capsWidget.setLastAction("");
     }
 
     // Audit widget (string array — lightweight)
@@ -174,7 +176,7 @@ export default function bunshellExtension(pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     await teardown();
-    opCount = 0;
-    capsWidget = null;
+    state.opCount = 0;
+    state.capsWidget = null;
   });
 }
