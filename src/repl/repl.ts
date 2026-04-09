@@ -28,6 +28,9 @@ import * as wrappersMod from "../wrappers/index";
 import * as pipeMod from "../pipe/index";
 import * as auditMod from "../audit/index";
 import * as agentMod from "../agent/index";
+import * as secretsMod from "../secrets/index";
+import * as vfsMod from "../vfs/index";
+import * as configMod from "../config/index";
 
 // ---------------------------------------------------------------------------
 // ANSI
@@ -149,6 +152,12 @@ export async function startRepl(options?: ReplOptions): Promise<void> {
     ...auditMod,
     // Agent
     ...agentMod,
+    // Secrets & Auth
+    ...secretsMod,
+    // VFS
+    ...vfsMod,
+    // Config
+    ...configMod,
     // Utilities
     console,
     setTimeout,
