@@ -301,37 +301,56 @@ export function createSessionManager(): SessionManager {
       let value: unknown;
 
       const execTimeout = timeout ?? session.timeout;
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
+
+      // Cancellable timeout — clears when execution finishes to prevent
+      // unhandled rejection crashes
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutTimer = setTimeout(
           () => reject(new Error(`Execution timed out after ${execTimeout}ms`)),
           execTimeout,
-        ),
-      );
-
-      if (declMatch) {
-        const varName = declMatch[1]!;
-        const expr = declMatch[2]!;
-        const fn = new Function(
-          ...scopeKeys,
-          `return (async () => { return (${expr}); })()`,
         );
-        value = await Promise.race([fn(...scopeValues), timeoutPromise]);
-        userVars[varName] = value;
-      } else {
-        try {
+      });
+
+      try {
+        if (declMatch) {
+          const varName = declMatch[1]!;
+          const expr = declMatch[2]!;
           const fn = new Function(
             ...scopeKeys,
-            `return (async () => { return (${wrappedJs}); })()`,
+            `return (async () => { return (${expr}); })()`,
           );
           value = await Promise.race([fn(...scopeValues), timeoutPromise]);
-        } catch {
-          const fn = new Function(
-            ...scopeKeys,
-            `return (async () => { ${wrappedJs}; })()`,
-          );
-          await Promise.race([fn(...scopeValues), timeoutPromise]);
-          value = undefined;
+          userVars[varName] = value;
+        } else {
+          try {
+            const fn = new Function(
+              ...scopeKeys,
+              `return (async () => { return (${wrappedJs}); })()`,
+            );
+            value = await Promise.race([fn(...scopeValues), timeoutPromise]);
+          } catch (innerErr) {
+            // If it's a syntax error (not timeout), try as statements
+            if (
+              innerErr instanceof SyntaxError ||
+              (innerErr instanceof Error &&
+                innerErr.message.includes("Unexpected token"))
+            ) {
+              const fn = new Function(
+                ...scopeKeys,
+                `return (async () => { ${wrappedJs}; })()`,
+              );
+              await Promise.race([fn(...scopeValues), timeoutPromise]);
+              value = undefined;
+            } else {
+              throw innerErr;
+            }
+          }
         }
+      } finally {
+        // CRITICAL: always clear the timeout timer to prevent the rejection
+        // from firing after execution completes and crashing the process
+        if (timeoutTimer) clearTimeout(timeoutTimer);
       }
 
       const duration = performance.now() - start;
