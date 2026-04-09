@@ -51,6 +51,30 @@ export interface VfsStat {
   readonly modifiedAt: Date;
 }
 
+/** Options for mounting a GitHub repository. */
+export interface GitMountOptions {
+  /** GitHub personal access token (for private repos or rate limits). */
+  readonly token?: string;
+  /** Max files to fetch (default: 1000). Prevents loading huge repos. */
+  readonly maxFiles?: number;
+  /** File extensions to include (e.g., [".ts", ".json"]). Null = all. */
+  readonly include?: readonly string[];
+  /** Paths to exclude (glob patterns, e.g., ["node_modules/**"]). */
+  readonly exclude?: readonly string[];
+  /** Max file size in bytes to fetch (default: 1MB). Skips large binaries. */
+  readonly maxFileSize?: number;
+}
+
+/** Result of a git mount operation. */
+export interface GitMountResult {
+  readonly owner: string;
+  readonly repo: string;
+  readonly ref: string;
+  readonly filesLoaded: number;
+  readonly totalSize: number;
+  readonly skipped: number;
+}
+
 // ---------------------------------------------------------------------------
 // VirtualFilesystem
 // ---------------------------------------------------------------------------
@@ -108,6 +132,27 @@ export interface VirtualFilesystem {
 
   /** Mount a real directory into the VFS (read files from disk into memory). */
   mountFromDisk(diskPath: string, vfsPath: string): Promise<void>;
+
+  /**
+   * Mount a GitHub repository into the VFS (lazy, all in RAM).
+   * Uses the GitHub Trees API to fetch the full file tree, then
+   * fetches file contents via the Blobs API. No clone, no disk.
+   *
+   * URL format: "github://owner/repo" or "github://owner/repo/path"
+   * Optional ref (branch/tag/sha): "github://owner/repo@main"
+   *
+   * @example
+   * ```ts
+   * await vfs.mountGit("github://facebook/react", "/repo");
+   * await vfs.mountGit("github://owner/repo@v2.0", "/repo", { token: "ghp_..." });
+   * await vfs.mountGit("github://owner/repo/src", "/src", { maxFiles: 100 });
+   * ```
+   */
+  mountGit(
+    url: string,
+    vfsPath: string,
+    options?: GitMountOptions,
+  ): Promise<GitMountResult>;
 
   /** Sync a VFS directory back to disk. */
   syncToDisk(vfsPath: string, diskPath: string): Promise<void>;
@@ -433,6 +478,182 @@ export function createVfs(): VirtualFilesystem {
         meta: { createdAt: now(), modifiedAt: now(), mode: 0o755, size: 0 },
       });
       await walk(absBase, norm);
+    },
+
+    async mountGit(
+      url: string,
+      vfsPath: string,
+      options?: GitMountOptions,
+    ): Promise<GitMountResult> {
+      // Parse URL: github://owner/repo[@ref][/subpath]
+      const match = url.match(
+        /^github:\/\/([^/]+)\/([^/@]+)(?:@([^/]+))?(?:\/(.+))?$/,
+      );
+      if (!match) {
+        throw new Error(
+          `Invalid git URL: "${url}". Expected: github://owner/repo[@ref][/path]`,
+        );
+      }
+      const owner = match[1]!;
+      const repo = match[2]!;
+      const ref = match[3] ?? "HEAD";
+      const subpath = match[4] ?? "";
+
+      const maxFiles = options?.maxFiles ?? 1000;
+      const maxFileSize = options?.maxFileSize ?? 1_048_576; // 1MB
+      const includeExts = options?.include ? new Set(options.include) : null;
+      const excludeGlobs = options?.exclude?.map((p) => new Bun.Glob(p)) ?? [];
+
+      const headers: Record<string, string> = {
+        Accept: "application/vnd.github.v3+json",
+        "User-Agent": "BunShell/0.1.0",
+      };
+      if (options?.token) {
+        headers["Authorization"] = `Bearer ${options.token}`;
+      }
+
+      // Step 1: Get the tree recursively via GitHub Trees API
+      const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`;
+      const treeResp = await fetch(treeUrl, { headers });
+
+      if (!treeResp.ok) {
+        const body = await treeResp.text();
+        throw new Error(
+          `GitHub API error (${treeResp.status}): ${body.slice(0, 200)}`,
+        );
+      }
+
+      const treeData = (await treeResp.json()) as {
+        sha: string;
+        tree: Array<{
+          path: string;
+          mode: string;
+          type: "blob" | "tree";
+          sha: string;
+          size?: number;
+        }>;
+        truncated: boolean;
+      };
+
+      // Step 2: Filter and collect files to fetch
+      const filesToFetch: Array<{ path: string; sha: string; size: number }> =
+        [];
+      let skipped = 0;
+
+      const norm = normPath(vfsPath);
+      nodes.set(norm, {
+        type: "dir",
+        meta: { createdAt: now(), modifiedAt: now(), mode: 0o755, size: 0 },
+      });
+
+      for (const entry of treeData.tree) {
+        // Apply subpath filter
+        if (subpath && !entry.path.startsWith(subpath)) continue;
+        const relativePath = subpath
+          ? entry.path.slice(subpath.length + 1)
+          : entry.path;
+        if (!relativePath) continue;
+
+        const vfsFullPath = normPath(join(vfsPath, relativePath));
+
+        if (entry.type === "tree") {
+          // Directory
+          nodes.set(vfsFullPath, {
+            type: "dir",
+            meta: { createdAt: now(), modifiedAt: now(), mode: 0o755, size: 0 },
+          });
+          continue;
+        }
+
+        // File — apply filters
+        if (filesToFetch.length >= maxFiles) {
+          skipped++;
+          continue;
+        }
+        if (entry.size && entry.size > maxFileSize) {
+          skipped++;
+          continue;
+        }
+
+        const ext = "." + relativePath.split(".").pop();
+        if (includeExts && !includeExts.has(ext)) {
+          skipped++;
+          continue;
+        }
+
+        const excluded = excludeGlobs.some((g) => g.match(relativePath));
+        if (excluded) {
+          skipped++;
+          continue;
+        }
+
+        filesToFetch.push({
+          path: vfsFullPath,
+          sha: entry.sha,
+          size: entry.size ?? 0,
+        });
+      }
+
+      // Step 3: Fetch file contents via Blobs API (batched)
+      let totalSize = 0;
+      let filesLoaded = 0;  
+      const BATCH_SIZE = 20;
+
+      for (let i = 0; i < filesToFetch.length; i += BATCH_SIZE) {
+        const batch = filesToFetch.slice(i, i + BATCH_SIZE);
+
+        const fetches = batch.map(async (file) => {
+          const blobUrl = `https://api.github.com/repos/${owner}/${repo}/git/blobs/${file.sha}`;
+          const resp = await fetch(blobUrl, { headers });
+          if (!resp.ok) return null;
+
+          const blob = (await resp.json()) as {
+            content: string;
+            encoding: "base64" | "utf-8";
+            size: number;
+          };
+
+          let content: Uint8Array;
+          if (blob.encoding === "base64") {
+            content = new Uint8Array(Buffer.from(blob.content, "base64"));
+          } else {
+            content = new TextEncoder().encode(blob.content);
+          }
+
+          return { path: file.path, content, size: blob.size };
+        });
+
+        const results = await Promise.all(fetches);
+
+        for (const result of results) {
+          if (!result) {
+            skipped++;
+            continue;
+          }
+          ensureParents(result.path);
+          nodes.set(result.path, {
+            type: "file",
+            content: result.content,
+            meta: {
+              createdAt: now(),
+              modifiedAt: now(),
+              mode: 0o644,
+              size: result.size,
+            },
+          });
+          totalSize += result.size;
+          filesLoaded++;
+        }
+      }
+
+      return {
+        owner,
+        repo,
+        ref: treeData.sha.slice(0, 8),
+        filesLoaded,
+        totalSize,
+        skipped,
+      };
     },
 
     async syncToDisk(vfsPath: string, diskPath: string): Promise<void> {

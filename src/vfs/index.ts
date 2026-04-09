@@ -12,4 +12,6 @@ export type {
   VfsEntry,
   VfsStat,
   VfsSnapshot,
+  GitMountOptions,
+  GitMountResult,
 } from "./vfs";
