@@ -95,11 +95,52 @@ export interface LiveMountHandle {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Convert a glob pattern to a RegExp.
+ * Supports: * (any non-/ chars), ** (any chars including /), ? (single char).
+ * Works on both Bun and Node.js runtimes.
+ */
+function globToRegex(pattern: string): RegExp {
+  let re = "";
+  let i = 0;
+  while (i < pattern.length) {
+    const ch = pattern[i]!;
+    if (ch === "*" && pattern[i + 1] === "*") {
+      // ** matches anything including /
+      re += ".*";
+      i += 2;
+      if (pattern[i] === "/") i++; // skip trailing /
+    } else if (ch === "*") {
+      re += "[^/]*";
+      i++;
+    } else if (ch === "?") {
+      re += "[^/]";
+      i++;
+    } else if (ch === ".") {
+      re += "\\.";
+      i++;
+    } else {
+      re += ch;
+      i++;
+    }
+  }
+  return new RegExp("^" + re + "$");
+}
+
+interface GlobMatcher {
+  match(path: string): boolean;
+}
+
+function createGlobMatcher(pattern: string): GlobMatcher {
+  const regex = globToRegex(pattern);
+  return { match: (path: string) => regex.test(path) };
+}
+
 function shouldIgnore(
   relPath: string,
-  ignoreGlobs: readonly Bun.Glob[],
+  ignoreMatchers: readonly GlobMatcher[],
 ): boolean {
-  return ignoreGlobs.some((g) => g.match(relPath));
+  return ignoreMatchers.some((g) => g.match(relPath));
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +200,7 @@ export async function createLiveMount(
   const absDisk = resolve(diskPath);
   const normVfs = vfsPath.startsWith("/") ? vfsPath : "/" + vfsPath;
   let policy: LiveMountPolicy = options?.policy ?? "auto-flush";
-  const ignoreGlobs = (options?.ignore ?? []).map((p) => new Bun.Glob(p));
+  const ignoreGlobs = (options?.ignore ?? []).map((p) => createGlobMatcher(p));
   let active = true;
   let fileCount = 0;
 
@@ -488,7 +529,7 @@ async function loadDiskToVfs(
   dir: string,
   vfsDir: string,
   vfs: VirtualFilesystem,
-  ignoreGlobs: readonly Bun.Glob[],
+  ignoreGlobs: readonly GlobMatcher[],
 ): Promise<void> {
   vfs.mkdir(vfsDir);
 
