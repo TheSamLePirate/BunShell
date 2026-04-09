@@ -24,6 +24,8 @@ export type {
   OsInteract,
   SecretRead,
   SecretWrite,
+  DockerRun,
+  PluginCap,
   Capability,
   CapabilityKind,
   CheckResult,

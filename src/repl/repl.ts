@@ -287,6 +287,7 @@ export async function startRepl(options?: ReplOptions): Promise<void> {
     "os:interact",
     "secret:read",
     "secret:write",
+    "docker:run",
   ];
 
   // --- TUI mode (default) ---
@@ -624,6 +625,17 @@ ${C.yellow}Stream Pipe${C.reset} ${C.dim}(async iterable, O(1) memory)${C.reset}
 ${C.yellow}Visualization${C.reset} ${C.dim}(pipe sinks)${C.reset}
   toTable  toBarChart  toSparkline  toHistogram
 
+${C.yellow}Docker${C.reset} ${C.dim}(docker:run — Compute Plane)${C.reset}
+  dockerRun  dockerExec  dockerVfsRun  dockerBuild
+  dockerPull  dockerImages  dockerPs  dockerStop  dockerRm  dockerLogs
+  dockerSpawnBackground  dockerRunStreaming  dockerRunProxied  startEgressProxy
+
+${C.yellow}Live Mount${C.reset} ${C.dim}(bi-directional VFS ↔ disk)${C.reset}
+  createLiveMount
+
+${C.yellow}Plugins${C.reset} ${C.dim}(plugin:* — dynamic wrappers)${C.reset}
+  validatePlugin  createPluginRegistry
+
 ${C.yellow}Agent${C.reset}
   runAgent
 
@@ -898,7 +910,11 @@ const TYPE_DEFS: Record<string, string> = {
   | EnvWrite    ${C.dim}{ kind: "env:write",   allowedKeys: string[] }${C.reset}
   | DbQuery     ${C.dim}{ kind: "db:query",    pattern: string }${C.reset}
   | NetConnect  ${C.dim}{ kind: "net:connect", allowedHosts: string[] }${C.reset}
-  | OsInteract  ${C.dim}{ kind: "os:interact" }${C.reset}`,
+  | OsInteract  ${C.dim}{ kind: "os:interact" }${C.reset}
+  | SecretRead  ${C.dim}{ kind: "secret:read",  allowedKeys: string[] }${C.reset}
+  | SecretWrite ${C.dim}{ kind: "secret:write", allowedKeys: string[] }${C.reset}
+  | DockerRun   ${C.dim}{ kind: "docker:run",   allowedImages: string[] }${C.reset}
+  | PluginCap   ${C.dim}{ kind: "plugin:\${name}", pluginName: string }${C.reset}`,
   AgentResult: `${C.magenta}interface${C.reset} ${C.cyan}AgentResult${C.reset} {
   ${C.cyan}success${C.reset}: boolean
   ${C.cyan}exitCode${C.reset}: number
@@ -1022,6 +1038,117 @@ ${C.dim}// Eager transform — operates on full arrays${C.reset}`,
   ${C.cyan}kind${C.reset}: "secret:write"
   ${C.cyan}allowedKeys${C.reset}: readonly K[]
 }`,
+  DockerRun: `${C.magenta}interface${C.reset} ${C.cyan}DockerRun${C.reset}<I = string> {
+  ${C.cyan}kind${C.reset}: "docker:run"
+  ${C.cyan}allowedImages${C.reset}: readonly I[]
+}`,
+  DockerRunResult: `${C.magenta}interface${C.reset} ${C.cyan}DockerRunResult${C.reset} {
+  ${C.cyan}containerId${C.reset}: string
+  ${C.cyan}exitCode${C.reset}: number
+  ${C.cyan}stdout${C.reset}: string
+  ${C.cyan}stderr${C.reset}: string
+  ${C.cyan}success${C.reset}: boolean
+  ${C.cyan}duration${C.reset}: number
+  ${C.cyan}image${C.reset}: string
+}`,
+  DockerVfsRunResult: `${C.magenta}interface${C.reset} ${C.cyan}DockerVfsRunResult${C.reset} ${C.magenta}extends${C.reset} DockerRunResult {
+  ${C.cyan}filesChanged${C.reset}: number
+  ${C.cyan}filesAdded${C.reset}: number
+  ${C.cyan}filesRemoved${C.reset}: number
+  ${C.cyan}bytesTransferred${C.reset}: number
+}`,
+  DockerBuildResult: `${C.magenta}interface${C.reset} ${C.cyan}DockerBuildResult${C.reset} {
+  ${C.cyan}imageId${C.reset}: string
+  ${C.cyan}tag${C.reset}: string
+  ${C.cyan}success${C.reset}: boolean
+  ${C.cyan}stdout${C.reset}: string
+  ${C.cyan}stderr${C.reset}: string
+  ${C.cyan}duration${C.reset}: number
+}`,
+  DockerImage: `${C.magenta}interface${C.reset} ${C.cyan}DockerImage${C.reset} {
+  ${C.cyan}repository${C.reset}: string
+  ${C.cyan}tag${C.reset}: string
+  ${C.cyan}imageId${C.reset}: string
+  ${C.cyan}created${C.reset}: string
+  ${C.cyan}size${C.reset}: string
+}`,
+  DockerContainer: `${C.magenta}interface${C.reset} ${C.cyan}DockerContainer${C.reset} {
+  ${C.cyan}containerId${C.reset}: string
+  ${C.cyan}image${C.reset}: string
+  ${C.cyan}command${C.reset}: string
+  ${C.cyan}created${C.reset}: string
+  ${C.cyan}status${C.reset}: string
+  ${C.cyan}ports${C.reset}: string
+  ${C.cyan}names${C.reset}: string
+}`,
+  DockerDaemonHandle: `${C.magenta}interface${C.reset} ${C.cyan}DockerDaemonHandle${C.reset} {
+  ${C.cyan}containerId${C.reset}: string
+  ${C.cyan}image${C.reset}: string
+  ${C.cyan}status${C.reset}(): Promise<"running" | "exited" | "paused" | "unknown">
+  ${C.cyan}logs${C.reset}(opts?): Promise<string>
+  ${C.cyan}logStream${C.reset}(): AsyncIterable<string>
+  ${C.cyan}exec${C.reset}(command: string[]): Promise<{ exitCode, stdout, stderr }>
+  ${C.cyan}waitForPort${C.reset}(port: number, opts?): Promise<boolean>
+  ${C.cyan}stop${C.reset}(timeout?: number): Promise<boolean>
+  ${C.cyan}kill${C.reset}(): Promise<boolean>
+}`,
+  DockerStream: `${C.magenta}interface${C.reset} ${C.cyan}DockerStream${C.reset} ${C.magenta}extends${C.reset} AsyncIterable<string> {
+  ${C.cyan}containerId${C.reset}: string
+  ${C.cyan}kill${C.reset}(): Promise<void>
+  ${C.dim}// Iterate with: for await (const line of stream)${C.reset}
+  ${C.dim}// Kill early: await stream.kill()${C.reset}
+}`,
+  EgressProxyHandle: `${C.magenta}interface${C.reset} ${C.cyan}EgressProxyHandle${C.reset} {
+  ${C.cyan}port${C.reset}: number
+  ${C.cyan}allowed${C.reset}: number        ${C.dim}// requests passed through${C.reset}
+  ${C.cyan}blocked${C.reset}: number        ${C.dim}// requests denied${C.reset}
+  ${C.cyan}blockedDomains${C.reset}: string[]
+  ${C.cyan}stop${C.reset}(): void
+}`,
+  LiveMountHandle: `${C.magenta}interface${C.reset} ${C.cyan}LiveMountHandle${C.reset} {
+  ${C.cyan}diskPath${C.reset}: string
+  ${C.cyan}vfsPath${C.reset}: string
+  ${C.cyan}policy${C.reset}: "auto-flush" | "draft"
+  ${C.cyan}active${C.reset}: boolean
+  ${C.cyan}fileCount${C.reset}: number
+  ${C.cyan}diff${C.reset}(): LiveMountDiff[]    ${C.dim}// pending diffs (draft mode)${C.reset}
+  ${C.cyan}flush${C.reset}(): number            ${C.dim}// write diffs to disk${C.reset}
+  ${C.cyan}discard${C.reset}(): number          ${C.dim}// revert VFS to disk state${C.reset}
+  ${C.cyan}setPolicy${C.reset}(p): void         ${C.dim}// switch at runtime${C.reset}
+  ${C.cyan}unmount${C.reset}(): void             ${C.dim}// stop syncing${C.reset}
+}`,
+  LiveMountDiff: `${C.magenta}interface${C.reset} ${C.cyan}LiveMountDiff${C.reset} {
+  ${C.cyan}path${C.reset}: string              ${C.dim}// relative to disk root${C.reset}
+  ${C.cyan}vfsPath${C.reset}: string           ${C.dim}// absolute VFS path${C.reset}
+  ${C.cyan}action${C.reset}: "add" | "modify" | "delete"
+  ${C.cyan}content${C.reset}?: string           ${C.dim}// for add/modify${C.reset}
+}`,
+  PluginCap: `${C.magenta}interface${C.reset} ${C.cyan}PluginCap${C.reset}<P = string> {
+  ${C.cyan}kind${C.reset}: \`plugin:\${P}\`
+  ${C.cyan}pluginName${C.reset}: P
+  ${C.dim}// Agent-defined capability — declares transitive deps via RequireCap${C.reset}
+}`,
+  PluginValidationResult: `${C.magenta}interface${C.reset} ${C.cyan}PluginValidationResult${C.reset} {
+  ${C.cyan}valid${C.reset}: boolean
+  ${C.cyan}errors${C.reset}: string[]
+  ${C.cyan}exports${C.reset}: string[]
+}`,
+  PluginRegistry: `${C.magenta}interface${C.reset} ${C.cyan}PluginRegistry${C.reset} {
+  ${C.cyan}request${C.reset}(name, source, requestedBy): PendingPlugin
+  ${C.cyan}approve${C.reset}(name, ctx): Promise<LoadedPlugin>
+  ${C.cyan}reject${C.reset}(name): void
+  ${C.cyan}get${C.reset}(name): LoadedPlugin | undefined
+  ${C.cyan}list${C.reset}(): LoadedPlugin[]
+  ${C.cyan}unload${C.reset}(name): boolean
+  ${C.cyan}allExports${C.reset}(): Record<string, unknown>
+}`,
+  LoadedPlugin: `${C.magenta}interface${C.reset} ${C.cyan}LoadedPlugin${C.reset} {
+  ${C.cyan}name${C.reset}: string
+  ${C.cyan}source${C.reset}: string
+  ${C.cyan}exports${C.reset}: Record<string, unknown>
+  ${C.cyan}exportNames${C.reset}: string[]
+  ${C.cyan}loadedAt${C.reset}: Date
+}`,
   RequireCap: `${C.magenta}type${C.reset} ${C.cyan}RequireCap${C.reset}<K, Required> =
   [Required] ${C.magenta}extends${C.reset} [K] ? CapabilityContext<K> : ${C.yellow}never${C.reset}
 ${C.dim}// If context K includes Required → returns the context
@@ -1029,7 +1156,8 @@ ${C.dim}// If context K includes Required → returns the context
   CapabilityKind: `${C.magenta}type${C.reset} ${C.cyan}CapabilityKind${C.reset} = Capability["kind"]
 ${C.dim}// = "fs:read" | "fs:write" | "fs:delete" | "process:spawn" | "net:fetch"
 //   | "net:listen" | "env:read" | "env:write" | "db:query" | "net:connect"
-//   | "os:interact" | "secret:read" | "secret:write"${C.reset}`,
+//   | "os:interact" | "secret:read" | "secret:write" | "docker:run"
+//   | \`plugin:\${string}\`${C.reset}`,
   GlobPattern: `${C.magenta}type${C.reset} ${C.cyan}GlobPattern${C.reset} = string
 ${C.dim}// Runtime-validated via Bun.Glob. e.g. "/tmp/**", "*.ts"${C.reset}`,
   // --- Secrets & Auth ---

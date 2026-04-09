@@ -91,6 +91,14 @@ function buildCapabilities(config: BunShellEnv): readonly Capability[] {
 
   if (config.capabilities.os?.interact) b.osInteract();
 
+  const docker = config.capabilities.docker;
+  if (docker?.run?.length) b.dockerRun(docker.run);
+
+  const plugins = config.capabilities.plugins;
+  if (plugins?.length) {
+    for (const p of plugins) b.plugin(p);
+  }
+
   return b.toArray();
 }
 
@@ -208,8 +216,15 @@ export async function loadEnvironment(
         if (mount.maxFiles) gitOpts["maxFiles"] = mount.maxFiles;
 
         await vfs.mountGit(mount.git, mount.to, gitOpts);
+      } else if ("live" in mount) {
+        // Live bi-directional mount
+        const absFrom = resolve(absPath, "..", mount.live);
+        const liveOpts: Record<string, unknown> = {};
+        if (mount.policy) liveOpts["policy"] = mount.policy;
+        if (mount.ignore) liveOpts["ignore"] = mount.ignore;
+        await vfs.mountLive(absFrom, mount.to, liveOpts);
       } else {
-        // Disk mount
+        // Disk mount (one-time snapshot)
         const absFrom = resolve(absPath, "..", mount.from);
         await vfs.mountFromDisk(absFrom, mount.to);
       }

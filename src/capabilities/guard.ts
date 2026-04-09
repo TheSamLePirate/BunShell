@@ -304,6 +304,44 @@ function checkOsInteract(_held: Capability, required: Capability): CheckResult {
   return { allowed: true, capability: required };
 }
 
+function checkDockerRun(held: Capability, required: Capability): CheckResult {
+  const h = held as Capability & { allowedImages: readonly string[] };
+  const r = required as Capability & { allowedImages: readonly string[] };
+
+  if (h.allowedImages.includes("*")) {
+    return { allowed: true, capability: required };
+  }
+
+  const image = r.allowedImages[0];
+  if (!image) {
+    return {
+      allowed: false,
+      capability: required,
+      reason: "No image specified",
+    };
+  }
+
+  // Match image name — support wildcards like "node:*" or "python:3.*"
+  const allowed = h.allowedImages.some((pattern) => {
+    if (pattern === image) return true;
+    if (pattern.includes("*")) {
+      const glob = new Bun.Glob(pattern);
+      return glob.match(image);
+    }
+    // Allow "node" to match "node:latest", "node:20" etc.
+    if (!pattern.includes(":") && image.startsWith(pattern + ":")) return true;
+    return false;
+  });
+
+  return {
+    allowed,
+    capability: required,
+    reason: allowed
+      ? undefined
+      : `Image "${image}" not in allowed list [${h.allowedImages.join(", ")}]`,
+  };
+}
+
 function checkSecretCapability(
   held: Capability & { allowedKeys: readonly string[] },
   required: Capability & { allowedKeys: readonly string[] },
@@ -340,8 +378,33 @@ function checkSecretCapability(
   };
 }
 
-/** Map capability kinds to their checker functions. */
-const checkers: Record<CapabilityKind, CapabilityChecker> = {
+/** Plugin capability checker — just verifies the plugin names match. */
+function checkPlugin(held: Capability, required: Capability): CheckResult {
+  const h = held as Capability & { pluginName: string };
+  const r = required as Capability & { pluginName: string };
+
+  // Wildcard: plugin:* grants all plugins
+  if (h.pluginName === "*") {
+    return { allowed: true, capability: required };
+  }
+
+  // Glob matching on plugin names
+  const allowed =
+    h.pluginName === r.pluginName ||
+    (h.pluginName.includes("*") &&
+      new Bun.Glob(h.pluginName).match(r.pluginName));
+
+  return {
+    allowed,
+    capability: required,
+    reason: allowed
+      ? undefined
+      : `Plugin "${r.pluginName}" not in allowed list`,
+  };
+}
+
+/** Static map for core capability kinds. */
+const coreCheckers: Record<string, CapabilityChecker> = {
   "fs:read": checkPathCapability as CapabilityChecker,
   "fs:write": checkPathCapability as CapabilityChecker,
   "fs:delete": checkPathCapability as CapabilityChecker,
@@ -355,7 +418,24 @@ const checkers: Record<CapabilityKind, CapabilityChecker> = {
   "os:interact": checkOsInteract,
   "secret:read": checkSecretCapability as CapabilityChecker,
   "secret:write": checkSecretCapability as CapabilityChecker,
+  "docker:run": checkDockerRun,
 };
+
+/**
+ * Get the checker for a capability kind.
+ * Core kinds use the static map. Plugin kinds (plugin:*) use checkPlugin.
+ */
+function getChecker(kind: CapabilityKind): CapabilityChecker {
+  const core = coreCheckers[kind];
+  if (core) return core;
+  if (kind.startsWith("plugin:")) return checkPlugin;
+  // Unknown kind — default deny
+  return (_held: Capability, required: Capability): CheckResult => ({
+    allowed: false,
+    capability: required,
+    reason: `Unknown capability kind: "${kind}"`,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -383,7 +463,7 @@ export function checkCapability(
       reason: `Capability kind mismatch: have "${held.kind}", need "${required.kind}"`,
     };
   }
-  return checkers[held.kind](held, required);
+  return getChecker(held.kind)(held, required);
 }
 
 /**

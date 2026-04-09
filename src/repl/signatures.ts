@@ -842,6 +842,138 @@ const SIGNATURES = new Map<string, FunctionSignature>([
       description: "Start building capabilities",
     },
   ],
+
+  // Docker (Compute Plane)
+  [
+    "dockerRun",
+    {
+      signature:
+        "(ctx, image: string, opts?: DockerRunOptions) → DockerRunResult",
+      description: "Run Docker container",
+    },
+  ],
+  [
+    "dockerExec",
+    {
+      signature:
+        "(ctx, image: string, script: string, opts?) → DockerRunResult",
+      description: "Run script in container",
+    },
+  ],
+  [
+    "dockerVfsRun",
+    {
+      signature:
+        "(ctx, vfs, image: string, opts: DockerVfsRunOptions) → DockerVfsRunResult",
+      description: "VFS-synced Docker run",
+    },
+  ],
+  [
+    "dockerBuild",
+    {
+      signature:
+        "(ctx, contextPath: string, tag: string, opts?) → DockerBuildResult",
+      description: "Build Docker image",
+    },
+  ],
+  [
+    "dockerPull",
+    {
+      signature: "(ctx, image: string) → DockerRunResult",
+      description: "Pull Docker image",
+    },
+  ],
+  [
+    "dockerImages",
+    {
+      signature: "(ctx) → DockerImage[]",
+      description: "List Docker images",
+    },
+  ],
+  [
+    "dockerPs",
+    {
+      signature: "(ctx) → DockerContainer[]",
+      description: "List running containers",
+    },
+  ],
+  [
+    "dockerStop",
+    {
+      signature: "(ctx, containerId: string, timeout?: number) → boolean",
+      description: "Stop container",
+    },
+  ],
+  [
+    "dockerRm",
+    {
+      signature: "(ctx, containerId: string, force?: boolean) → boolean",
+      description: "Remove container",
+    },
+  ],
+  [
+    "dockerLogs",
+    {
+      signature: "(ctx, containerId: string, opts?) → string",
+      description: "Get container logs",
+    },
+  ],
+  [
+    "dockerSpawnBackground",
+    {
+      signature:
+        "(ctx, image: string, opts?: DockerRunOptions) → DockerDaemonHandle",
+      description: "Spawn background container",
+    },
+  ],
+  [
+    "dockerRunStreaming",
+    {
+      signature: "(ctx, image: string, opts?: DockerRunOptions) → DockerStream",
+      description: "Stream container output",
+    },
+  ],
+  [
+    "dockerRunProxied",
+    {
+      signature:
+        "(ctx, image: string, opts?) → DockerRunResult & { proxyStats }",
+      description: "Run with egress proxy",
+    },
+  ],
+  [
+    "startEgressProxy",
+    {
+      signature: "(ctx, opts?) → EgressProxyHandle",
+      description: "Start capability-checked proxy",
+    },
+  ],
+
+  // Live Mount
+  [
+    "createLiveMount",
+    {
+      signature:
+        "(vfs, diskPath: string, vfsPath: string, opts?) → LiveMountHandle",
+      description: "Bi-directional VFS ↔ disk sync",
+    },
+  ],
+
+  // Dynamic plugins
+  [
+    "validatePlugin",
+    {
+      signature: "(source: string) → PluginValidationResult",
+      description: "Validate plugin source",
+    },
+  ],
+  [
+    "createPluginRegistry",
+    {
+      signature: "() → PluginRegistry",
+      description: "Create plugin registry",
+    },
+  ],
 ]);
 
 // ---------------------------------------------------------------------------

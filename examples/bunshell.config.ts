@@ -31,6 +31,10 @@ export default {
       read: ["GITHUB_TOKEN"],
       write: ["GITHUB_TOKEN"],
     },
+    docker: {
+      run: ["node:20-alpine", "python:3.*", "alpine:latest"],
+    },
+    plugins: ["deploy", "formatter"],
   },
 
   secrets: {

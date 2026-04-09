@@ -48,6 +48,8 @@ export interface CapabilityBuilder<K extends CapabilityKind = never> {
   osInteract(): CapabilityBuilder<K | "os:interact">;
   secretRead(keys: readonly string[]): CapabilityBuilder<K | "secret:read">;
   secretWrite(keys: readonly string[]): CapabilityBuilder<K | "secret:write">;
+  dockerRun(images: readonly string[]): CapabilityBuilder<K | "docker:run">;
+  plugin<P extends string>(name: P): CapabilityBuilder<K | `plugin:${P}`>;
   add(capability: Capability): CapabilityBuilder<K | CapabilityKind>;
 
   /** Freeze and return the immutable CapabilitySet, branded with tracked kinds. */
@@ -157,6 +159,16 @@ export function capabilities(): CapabilityBuilder<never> {
 
     secretWrite(keys: readonly string[]): CapabilityBuilder {
       items.push({ kind: "secret:write", allowedKeys: keys });
+      return builder;
+    },
+
+    dockerRun(images: readonly string[]): CapabilityBuilder {
+      items.push({ kind: "docker:run", allowedImages: images });
+      return builder;
+    },
+
+    plugin(name: string): CapabilityBuilder {
+      items.push({ kind: `plugin:${name}`, pluginName: name } as Capability);
       return builder;
     },
 

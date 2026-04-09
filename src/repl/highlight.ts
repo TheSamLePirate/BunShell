@@ -49,6 +49,8 @@ const CAPABILITY_KINDS = new Set([
   "os:interact",
   "secret:read",
   "secret:write",
+  "docker:run",
+  // plugin:* kinds are dynamic template literals — matched by prefix below
 ]);
 
 /** TypeScript/JavaScript keywords. */
@@ -57,7 +59,7 @@ const KEYWORDS_RE =
 
 /** BunShell API function names. */
 const API_RE =
-  /\b(ls|cat|stat|exists|mkdir|write|readJson|writeJson|rm|cp|mv|find|du|chmod|createSymlink|readLink|touch|append|truncate|realPath|watchPath|globFiles|ps|kill|spawn|exec|netFetch|ping|download|dig|serve|wsConnect|env|getEnv|setEnv|grep|sort|uniq|head|tail|wc|uname|uptime|whoami|hostname|df|hash|hmac|randomBytes|randomUUID|randomInt|encrypt|decrypt|tar|untar|zip|unzip|gzip|gunzip|lineStream|tailStream|pipeSpawn|streamSpawn|parseJSON|formatJSON|parseCSV|formatCSV|parseTOML|base64Encode|base64Decode|base64DecodeString|dbOpen|dbQuery|dbExec|gitStatus|gitLog|gitDiff|gitBranch|gitAdd|gitCommit|gitPush|gitPull|gitClone|gitStash|openUrl|openFile|notify|clipboard|sleep|interval|timeout|debounce|throttle|retry|currentUser|users|groups|pipe|filter|map|reduce|take|skip|sortBy|groupBy|unique|flatMap|tap|count|first|last|pluck|from|fromFile|fromJSON|fromCommand|toFile|toJSON|toStdout|collect|streamPipe|sFilter|sMap|sFlatMap|sTake|sSkip|sTap|sUnique|sPluck|sChunk|sScan|sThrottle|sTakeWhile|sSkipWhile|sToArray|sReduce|sCount|sFirst|sForEach|sToFile|fromArray|fromReadable|fromLines|toTable|toBarChart|toSparkline|toHistogram|runAgent|createContext|capabilities|createSecretStore|deriveKey|createStateStore|authBearer|authBasic|authedFetch|oauth2DeviceFlow|cookieJar|secretFromEnv|createAuditLogger|consoleSink|jsonlSink|streamSink)\b/g;
+  /\b(ls|cat|stat|exists|mkdir|write|readJson|writeJson|rm|cp|mv|find|du|chmod|createSymlink|readLink|touch|append|truncate|realPath|watchPath|globFiles|ps|kill|spawn|exec|netFetch|ping|download|dig|serve|wsConnect|env|getEnv|setEnv|grep|sort|uniq|head|tail|wc|uname|uptime|whoami|hostname|df|hash|hmac|randomBytes|randomUUID|randomInt|encrypt|decrypt|tar|untar|zip|unzip|gzip|gunzip|lineStream|tailStream|pipeSpawn|streamSpawn|parseJSON|formatJSON|parseCSV|formatCSV|parseTOML|base64Encode|base64Decode|base64DecodeString|dbOpen|dbQuery|dbExec|gitStatus|gitLog|gitDiff|gitBranch|gitAdd|gitCommit|gitPush|gitPull|gitClone|gitStash|openUrl|openFile|notify|clipboard|sleep|interval|timeout|debounce|throttle|retry|currentUser|users|groups|pipe|filter|map|reduce|take|skip|sortBy|groupBy|unique|flatMap|tap|count|first|last|pluck|from|fromFile|fromJSON|fromCommand|toFile|toJSON|toStdout|collect|streamPipe|sFilter|sMap|sFlatMap|sTake|sSkip|sTap|sUnique|sPluck|sChunk|sScan|sThrottle|sTakeWhile|sSkipWhile|sToArray|sReduce|sCount|sFirst|sForEach|sToFile|fromArray|fromReadable|fromLines|toTable|toBarChart|toSparkline|toHistogram|runAgent|createContext|capabilities|createSecretStore|deriveKey|createStateStore|authBearer|authBasic|authedFetch|oauth2DeviceFlow|cookieJar|secretFromEnv|createAuditLogger|consoleSink|jsonlSink|streamSink|dockerRun|dockerExec|dockerVfsRun|dockerBuild|dockerPull|dockerImages|dockerPs|dockerStop|dockerRm|dockerLogs|dockerSpawnBackground|dockerRunStreaming|dockerRunProxied|startEgressProxy|createLiveMount|validatePlugin|createPluginRegistry)\b/g;
 
 /** Boolean, null, undefined. */
 const BOOL_RE = /\b(true|false|null|undefined|NaN|Infinity)\b/g;
@@ -127,9 +129,9 @@ function colorProtected(text: string): string {
     return `${H.dim}${text}${H.reset}`;
   }
 
-  // Check if the string content is a capability kind
+  // Check if the string content is a capability kind (static or plugin:*)
   const inner = text.slice(1, -1);
-  if (CAPABILITY_KINDS.has(inner)) {
+  if (CAPABILITY_KINDS.has(inner) || inner.startsWith("plugin:")) {
     const quote = text[0];
     return `${H.yellow}${quote}${H.bold}${inner}${H.reset}${H.yellow}${quote}${H.reset}`;
   }

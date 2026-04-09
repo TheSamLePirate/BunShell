@@ -49,6 +49,8 @@ export const RPC_ERRORS = {
   CAPABILITY_DENIED: -32002,
   EXECUTION_ERROR: -32003,
   TIMEOUT: -32004,
+  PLUGIN_VALIDATION_FAILED: -32005,
+  PLUGIN_NOT_FOUND: -32006,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -177,4 +179,42 @@ export interface SessionFsSnapshotResult {
   readonly snapshot: VfsSnapshot;
   readonly fileCount: number;
   readonly totalBytes: number;
+}
+
+/** workspace.requestPluginApproval — agent submits a plugin for review. */
+export interface PluginApprovalRequestParams {
+  readonly sessionId: string;
+  readonly pluginName: string;
+  readonly source: string;
+}
+
+export interface PluginApprovalRequestResult {
+  readonly pluginName: string;
+  readonly valid: boolean;
+  readonly errors: readonly string[];
+  readonly exports: readonly string[];
+  readonly status: "pending" | "approved" | "rejected";
+}
+
+/** workspace.approvePlugin — human approves a pending plugin. */
+export interface PluginApproveParams {
+  readonly sessionId: string;
+  readonly pluginName: string;
+}
+
+export interface PluginApproveResult {
+  readonly pluginName: string;
+  readonly exports: readonly string[];
+  readonly status: "approved";
+}
+
+/** workspace.rejectPlugin — human rejects a pending plugin. */
+export interface PluginRejectParams {
+  readonly sessionId: string;
+  readonly pluginName: string;
+}
+
+/** workspace.listPlugins — list all plugins in a session. */
+export interface PluginListParams {
+  readonly sessionId: string;
 }

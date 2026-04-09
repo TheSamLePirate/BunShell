@@ -71,4 +71,5 @@ export const fullPreset: CapabilitySet = capabilities()
   .netListen(0)
   .envRead(["*"])
   .envWrite(["*"])
+  .dockerRun(["*"])
   .build();

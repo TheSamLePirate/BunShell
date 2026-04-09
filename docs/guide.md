@@ -67,7 +67,7 @@ Let's walk through each layer.
 
 This is the foundation. Every operation in BunShell requires a **capability** — a typed permission object.
 
-### The 8 Capability Types
+### The 14+N Capability Types
 
 | Capability | What it allows | Key property |
 |---|---|---|
@@ -79,6 +79,15 @@ This is the foundation. Every operation in BunShell requires a **capability** �
 | `NetListen` | Open a server port | `port` |
 | `EnvRead` | Read env variables | `allowedKeys` (list) |
 | `EnvWrite` | Modify env variables | `allowedKeys` (list) |
+| `DbQuery` | SQLite database access | `pattern` (glob) |
+| `NetConnect` | Raw TCP/UDP connections | `allowedHosts` + `allowedPorts` |
+| `OsInteract` | Desktop (notify, clipboard, open) | — |
+| `SecretRead` | Read secrets | `allowedKeys` (glob) |
+| `SecretWrite` | Write/create secrets | `allowedKeys` (glob) |
+| `DockerRun` | Run Docker containers | `allowedImages` (list + globs) |
+| `` PluginCap `` | Dynamic agent plugins | `pluginName` (template literal: `plugin:${name}`) |
+
+The first 14 are fixed, core capabilities. `PluginCap` is open-ended — agents can define new ones at runtime (`plugin:deploy`, `plugin:formatter`, etc.). The "+N" comes from however many plugins the agent registers.
 
 Each is a TypeScript interface with a `kind` discriminant:
 
@@ -91,6 +100,11 @@ interface FSRead {
 interface Spawn {
   readonly kind: "process:spawn";
   readonly allowedBinaries: readonly string[];  // ["git", "bun"]
+}
+
+interface DockerRun {
+  readonly kind: "docker:run";
+  readonly allowedImages: readonly string[];  // ["node", "python:3.*"]
 }
 ```
 
@@ -647,6 +661,8 @@ bunshell/
 │   │   ├── env.ts                # env, getEnv, setEnv
 │   │   ├── text.ts               # grep, sort, uniq, head, tail, wc
 │   │   ├── system.ts             # uname, uptime, whoami, hostname, df
+│   │   ├── docker.ts             # dockerRun, dockerExec, dockerVfsRun, ...
+│   │   ├── dynamic.ts            # validatePlugin, createPluginRegistry
 │   │   └── index.ts
 │   ├── pipe/                     # Layer 3 — Typed pipes
 │   │   ├── types.ts              # PipeStage<A, B>
@@ -675,7 +691,7 @@ bunshell/
 │   ├── 04-audit-trail.ts         # Full audit logging
 │   └── agents/
 │       └── file-lister.ts        # Example agent script
-├── tests/                        # 186 tests
+├── tests/                        # 542 tests
 │   ├── capabilities/
 │   ├── wrappers/
 │   ├── pipe/
@@ -910,6 +926,125 @@ const allUsers = await users(ctx);   // UserEntry[] (from /etc/passwd)
 const allGroups = await groups(ctx);  // GroupEntry[] (from /etc/group)
 ```
 
+### Docker — The Compute Plane (docker:run)
+
+TypeScript is the **Control Plane** — typed, fast, in-memory. Docker is the **Compute Plane** — for native, isolated, ephemeral tasks the agent can't do in TypeScript (cargo build, ffmpeg, kubectl, etc.).
+
+```typescript
+// Run a container — structured output like every other wrapper
+const result = await dockerRun(ctx, "node:20-alpine", {
+  command: ["node", "-e", "console.log(JSON.stringify({ok:true}))"],
+});
+// → DockerRunResult { success: true, stdout: '{"ok":true}', exitCode: 0, duration: 1200, ... }
+
+// Execute a script in any language — Python, Ruby, Go, anything
+const py = await dockerExec(ctx, "python:3.12-slim", `
+  import json
+  print(json.dumps({"pi": 3.14159}))
+`);
+```
+
+**The key integration — VFS ↔ Docker volume sync:**
+
+```typescript
+// 1. Flushes VFS to a temp directory
+// 2. Mounts it as a Docker volume
+// 3. Runs the container
+// 4. Ingests the file diff back into VFS
+const build = await dockerVfsRun(ctx, vfs, "rust:1.77", {
+  vfsPath: "/project",
+  command: ["cargo", "build", "--release"],
+});
+// → DockerVfsRunResult {
+//     success: true,
+//     filesChanged: 3,
+//     filesAdded: 42,
+//     filesRemoved: 0,
+//     bytesTransferred: 8_500_000,
+//   }
+// VFS now contains the build artifacts — no host disk touched
+```
+
+Image access is capability-checked:
+
+```typescript
+const ctx = createContext({
+  name: "builder",
+  capabilitySet: capabilities()
+    .dockerRun(["node", "python:3.*", "rust:1.77"])  // only these images
+    .build(),
+});
+
+await dockerRun(ctx, "node:20", { ... });   // OK — "node" matches "node:20"
+await dockerRun(ctx, "postgres", { ... });  // TYPE ERROR + RUNTIME ERROR
+```
+
+Container management:
+
+```typescript
+const images = await dockerImages(ctx);     // DockerImage[]
+const containers = await dockerPs(ctx);     // DockerContainer[]
+await dockerPull(ctx, "rust:1.77");         // Pull image
+await dockerStop(ctx, "abc123");            // Stop container
+await dockerRm(ctx, "abc123");              // Remove container
+const logs = await dockerLogs(ctx, "abc123", { tail: 100 });
+```
+
+### Daemon Containers — The Dev Server Pattern
+
+```typescript
+const server = await dockerSpawnBackground(ctx, "node:20", {
+  command: ["npm", "run", "dev"],
+  ports: ["3000:3000"],
+});
+
+await server.waitForPort(3000);    // Polls until port is reachable
+const resp = await netFetch(ctx, "http://localhost:3000/api");
+await server.exec(["npm", "test"]);  // Run tests inside the running container
+
+// Live log streaming
+for await (const line of server.logStream()) {
+  if (line.includes("ready")) break;
+}
+
+await server.stop();
+```
+
+### Streaming Output — No More 10,000-Line Strings
+
+```typescript
+const stream = await dockerRunStreaming(ctx, "rust:1.77", {
+  command: ["cargo", "build"],
+});
+
+for await (const line of stream) {
+  if (line.includes("error[E")) {
+    await stream.kill();  // Agent interrupts early — no 5-minute wait
+    break;
+  }
+}
+```
+
+### Egress Proxy — Capability-Checked Network
+
+When a container runs `npm install`, the dependencies can phone home to any server. The egress proxy forces all container traffic through BunShell, where `net:fetch` capabilities are checked:
+
+```typescript
+const result = await dockerRunProxied(ctx, "node:20", {
+  command: ["npm", "install"],
+});
+// registry.npmjs.org → allowed (in net:fetch list)
+// evil.com → 403 Blocked by BunShell egress proxy
+// result.proxyStats → { allowed: 47, blocked: 1, blockedDomains: ["evil.com"] }
+```
+
+Why this matters:
+- **The VFS wall is breached** — `cargo build` can't run in RAM, but `dockerVfsRun` flushes VFS → Docker → VFS seamlessly
+- **The long-tail CLI is solved** — need ffmpeg, kubectl, aws-cli? Use the official Docker image instead of writing a wrapper
+- **True isolation** — untrusted scripts run in containers, not on the host
+- **No silent hangs** — streaming output lets the agent react in real-time
+- **No network leaks** — egress proxy enforces `net:fetch` on container traffic
+
 ---
 
 ## Stream Pipe — O(1) Memory Pipelines
@@ -1093,6 +1228,153 @@ const content = vfs.readFile("/src/index.ts"); // read from filtered mount
 5. All data goes into the VFS Map — no disk, no temp files, pure RAM
 
 This directly addresses Theo's vision: "give them virtual file systems and stores based on your GitHub repos." The agent can `grep`, `ls`, and `cat` a GitHub repo without ever cloning it to disk.
+
+### Live Mount — Shared Workspace Between Human and Agent
+
+Mount a physical directory so the user and agent share a live, bi-directional workspace:
+
+```typescript
+// Auto-flush: every VFS write hits disk immediately
+const mount = await vfs.mountLive("/Users/olivier/project", "/workspace", {
+  policy: "auto-flush",
+  ignore: ["node_modules/**", ".git/**", "dist/**"],
+});
+
+// User saves in VS Code → VFS updates instantly (fs.watch)
+// Agent writes via vfs.writeFile → disk updates instantly
+// Both sides see each other's changes in real-time
+```
+
+**Draft mode** — the agent works freely in RAM, the human reviews before applying:
+
+```typescript
+const mount = await vfs.mountLive("/Users/olivier/project", "/workspace", {
+  policy: "draft",
+});
+
+// Agent modifies files — stays in RAM only
+vfs.writeFile("/workspace/src/fix.ts", "patched code");
+vfs.rm("/workspace/src/old.ts");
+
+// Human reviews the diff — like a PR review
+const diffs = mount.diff();
+// → [{ action: "modify", path: "src/fix.ts", content: "patched code" },
+//    { action: "delete", path: "src/old.ts" }]
+
+mount.flush();    // Apply all changes to disk (human approves)
+mount.discard();  // Revert VFS to match disk (human rejects)
+```
+
+**Policy switching** — start in draft mode, switch to auto-flush once you trust the agent:
+
+```typescript
+mount.setPolicy("auto-flush"); // Flushes all pending diffs, then syncs live
+```
+
+In `.bunshell.ts` config:
+```typescript
+vfs: {
+  mount: [
+    { live: ".", to: "/workspace", policy: "draft", ignore: ["node_modules/**"] },
+  ],
+}
+```
+
+---
+
+## Dynamic Plugins — Agent-Written Wrappers
+
+BunShell's 14 core capabilities cover the standard operations. But agents often need custom tools — a deployment wrapper, a code formatter, a domain-specific API client. The plugin system lets agents write their own typed wrappers without breaking the security model.
+
+### How It Works
+
+1. **Agent writes a plugin** — a TypeScript file with exported functions
+2. **BunShell validates it** — checks for banned imports, banned API calls
+3. **Human approves** — via RPC (`workspace.approvePlugin`) or CLI
+4. **Plugin is loaded** — transpiled, dynamically imported, injected into eval scope
+
+### Writing a Plugin
+
+Plugins look exactly like core wrappers — they use `RequireCap` to declare their capability requirements:
+
+```typescript
+import type { CapabilityKind, RequireCap } from "bunshell";
+import { netFetch } from "bunshell";
+
+export async function deploy<K extends CapabilityKind>(
+  ctx: RequireCap<K, "plugin:deploy" | "net:fetch">,
+  target: string,
+): Promise<{ deployed: boolean; url: string }> {
+  const resp = await netFetch(ctx, `https://api.deploy.io/${target}`);
+  return { deployed: resp.status === 200, url: resp.url };
+}
+```
+
+**Transitive security**: The `RequireCap<K, "plugin:deploy" | "net:fetch">` constraint means tsc will reject calling `deploy()` unless the context has BOTH `plugin:deploy` AND `net:fetch`. The agent can't hide what core capabilities its plugin actually uses — the type system forces honest declaration.
+
+### Security Validation
+
+`validatePlugin()` checks source code before it can be approved:
+
+**Banned** (plugin must go through `ctx` for everything):
+- `node:*` protocol imports (`import { readFileSync } from "node:fs"`)
+- Bare builtins (`child_process`, `net`, `http`, etc.)
+- `Bun.spawn`, `Bun.write`, `Bun.file`, `Bun.serve`
+- `eval()`, `new Function()`
+- `process.env` direct access
+
+**Required**:
+- At least one `export`
+
+```typescript
+const result = validatePlugin(source);
+// { valid: true, errors: [], exports: ["deploy"] }
+// — or —
+// { valid: false, errors: ["Banned import detected: node:fs. ..."], exports: [] }
+```
+
+### Plugin Registry
+
+```typescript
+const registry = createPluginRegistry();
+
+// Agent requests approval
+const pending = registry.request("deploy", source, "agent-1");
+// pending.validation.valid — did it pass security checks?
+// pending.status — "pending"
+
+// Human reviews and approves
+const loaded = await registry.approve("deploy", ctx);
+// loaded.exports.deploy — the function is now callable
+// loaded.exportNames — ["deploy"]
+
+// Injected into eval scope automatically
+// Agent can now: await deploy(ctx, "production")
+
+// Or reject
+registry.reject("deploy");
+```
+
+### RPC Integration
+
+In server mode, plugins flow through JSON-RPC:
+
+| Method | Description |
+|---|---|
+| `workspace.requestPluginApproval` | Agent submits plugin source for review |
+| `workspace.approvePlugin` | Human approves — plugin is loaded and injected |
+| `workspace.rejectPlugin` | Human rejects — plugin is discarded |
+| `workspace.listPlugins` | List pending and loaded plugins |
+
+### Config
+
+In `.bunshell.ts`, grant plugin capabilities:
+
+```typescript
+capabilities: {
+  plugins: ["deploy", "formatter", "custom-*"],  // glob patterns work
+}
+```
 
 ---
 

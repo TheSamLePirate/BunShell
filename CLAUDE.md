@@ -9,7 +9,7 @@ BunShell is a **typed execution layer for AI agents**. TypeScript's type system 
 - **Runtime**: Bun (latest stable)
 - **Language**: TypeScript 5.x, strict mode, no `any`
 - **Package manager**: Bun
-- **Testing**: `bun:test` (446 tests)
+- **Testing**: `bun:test` (542 tests)
 - **Linting**: ESLint with typescript-eslint
 
 ## Commands
@@ -18,7 +18,7 @@ BunShell is a **typed execution layer for AI agents**. TypeScript's type system 
 bun run shell           # Interactive TypeScript shell (highlighted, type-checked)
 bun run shell:audit     # Shell with audit logging
 bun run server          # JSON-RPC server on port 7483
-bun test                # Run all 439 tests
+bun test                # Run all 542 tests
 bun run typecheck       # tsc --noEmit
 bun run check           # Both typecheck + tests
 ```
@@ -34,8 +34,9 @@ Harness (Claude Code / Cursor / Custom) ─── JSON-RPC 2.0
     Agent Sandbox (VM-isolated subprocess)
     Audit System (auto-logged, 3 sinks)
     Pipe System (array + stream O(1) + viz)
-    80+ Wrappers (every operation typed + checked)
-    13 Capability Types (compile-time permission model)
+    Docker Compute Plane (VFS ↔ volume sync, ephemeral containers)
+    90+ Wrappers (every operation typed + checked)
+    14+N Capability Types (compile-time + dynamic plugins)
             │
         Bun Runtime
 ```
@@ -51,21 +52,24 @@ function ls<K>(ctx: RequireCap<K, "fs:read">, ...): Promise<FileEntry[]>
 function write<K>(ctx: RequireCap<K, "fs:write">, ...): Promise<WriteResult>
 function cp<K>(ctx: RequireCap<K, "fs:read" | "fs:write">, ...): Promise<void>
 function dbOpen<K>(ctx: RequireCap<K, "db:query" | "fs:read" | "fs:write">, ...): TypedDatabase
+function dockerRun<K>(ctx: RequireCap<K, "docker:run">, ...): Promise<DockerRunResult>
+function dockerVfsRun<K>(ctx: RequireCap<K, "docker:run">, vfs, ...): Promise<DockerVfsRunResult>
 ```
 
 The shell runs `tsc --noEmit` before execution. Type errors block execution.
 
 ## Key Modules
 
-- **`src/capabilities/`** — 13 cap types, `RequireCap<K>` helper, typed `CapabilityBuilder<K>`, `TypedCapabilitySet<K>`, guard, presets, context with overloaded `createContext`
-- **`src/wrappers/`** — 17 modules: fs, process, net, env, text, system, crypto, archive, stream, data, db, git, server, ws, os, schedule, user
+- **`src/capabilities/`** — 14 core cap types + `plugin:${string}` template literal, `RequireCap<K>` helper, typed `CapabilityBuilder<K>`, `TypedCapabilitySet<K>`, guard (function dispatch for plugin kinds), presets, context with overloaded `createContext`
+- **`src/wrappers/`** — 19 modules: fs, process, net, env, text, system, crypto, archive, stream, data, db, git, server, ws, os, schedule, user, docker, dynamic (plugin system)
 - **`src/pipe/`** — Array pipe (14 ops) + Stream pipe (15 lazy ops) + Viz (table, bar, spark, histogram)
 - **`src/audit/`** — Logger + 3 sinks (console, JSONL, EventEmitter)
 - **`src/agent/`** — VM-sandboxed subprocess execution
-- **`src/vfs/`** — In-memory virtual filesystem, session-scoped, `mountGit()` for GitHub repos in RAM
+- **`src/vfs/`** — In-memory virtual filesystem, session-scoped, `mountGit()` for GitHub repos in RAM, `mountLive()` for bi-directional VFS↔disk sync (auto-flush or draft mode)
 - **`src/server/`** — JSON-RPC 2.0 HTTP server, session manager
 - **`src/secrets/`** — Encrypted secret store (AES-256-GCM), state store, auth helpers (OAuth2, cookies)
-- **`src/repl/`** — pi-tui TUI shell, syntax highlighter, tsc integration (incremental, 5s timeout), type explorer (86 types), signatures (120+ functions), autocompletion
+- **`src/wrappers/docker.ts`** — Docker Compute Plane: dockerRun, dockerExec, dockerVfsRun (VFS↔volume sync), dockerBuild, dockerPull, dockerImages, dockerPs, dockerStop, dockerRm, dockerLogs, dockerSpawnBackground (daemon), dockerRunStreaming (async iterable), dockerRunProxied + startEgressProxy (capability-checked egress)
+- **`src/repl/`** — pi-tui TUI shell, syntax highlighter, tsc integration (incremental, 5s timeout), type explorer (92 types), signatures (130+ functions), autocompletion
 
 ## Code Style
 
@@ -91,7 +95,10 @@ The shell runs `tsc --noEmit` before execution. Type errors block execution.
 - **Live status header** — BunShell badge green/red/yellow based on background tsc result
 - **tsc --noEmit --incremental** before every REPL execution (cached preamble, fixed paths, 5s timeout)
 - **Typed builder** — `CapabilityBuilder<K>` accumulates kinds, `TypedCapabilitySet<K>` carries brand, `createContext` overload infers `CapabilityContext<K>`
-- **Function parameter hints** — 120+ signatures in `signatures.ts`, shown in TUI via `SignatureHint` component
+- **Function parameter hints** — 130+ signatures in `signatures.ts`, shown in TUI via `SignatureHint` component
+- **Dynamic plugins** — `plugin:${string}` template literal capability, `validatePlugin()` AST security check (bans `node:*` imports, `Bun.spawn`, `eval`, `process.env`), `PluginRegistry` for request/approve/reject workflow, `workspace/requestPluginApproval` RPC method, session scope injection; transitive security via `RequireCap<K, "plugin:name" | "net:fetch">`
+- **Docker Compute Plane** — TS is the Control Plane (typed, fast), Docker is the Compute Plane (native, isolated); `dockerVfsRun()` syncs VFS → temp dir → Docker volume → run → ingest diff back; `dockerSpawnBackground()` for daemon containers (dev servers); `dockerRunStreaming()` for line-by-line output with early kill; `startEgressProxy()` for capability-checked network egress (containers can only reach `net:fetch` allowed domains)
 - **Git mounting** — `vfs.mountGit("github://owner/repo", "/path")` loads GitHub repos into VFS via Trees+Blobs API
+- **Live mounting** — `vfs.mountLive("/disk/path", "/vfs/path")` bi-directional sync via `fs.watch`; auto-flush (VFS→disk instantly) or draft mode (accumulate diffs, human reviews `diff()` then `flush()` or `discard()`)
 - **Secret values structurally impossible** to appear in audit logs (`[REDACTED]`)
 - **PBKDF2 key derivation** (100K iterations, SHA-512) for secret store master key

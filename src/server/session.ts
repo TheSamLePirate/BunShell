@@ -23,6 +23,7 @@ import * as cryptoMod from "../wrappers/crypto";
 import * as dataMod from "../wrappers/data";
 import * as scheduleMod from "../wrappers/schedule";
 import * as textMod from "../wrappers/text";
+import { createPluginRegistry, type PluginRegistry } from "../wrappers/dynamic";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +35,7 @@ export interface Session {
   readonly ctx: CapabilityContext;
   readonly vfs: VirtualFilesystem;
   readonly audit: FullAuditLogger;
+  readonly plugins: PluginRegistry;
   readonly createdAt: Date;
   executions: number;
   readonly timeout: number;
@@ -121,12 +123,15 @@ export function createSessionManager(): SessionManager {
         }
       }
 
+      const plugins = createPluginRegistry();
+
       const session: Session = {
         id,
         name: opts.name,
         ctx,
         vfs,
         audit,
+        plugins,
         createdAt: new Date(),
         executions: 0,
         timeout: opts.timeout ?? 30000,
@@ -246,6 +251,9 @@ export function createSessionManager(): SessionManager {
         ...dataMod,
         ...scheduleMod,
         ...textMod,
+
+        // Dynamic plugin exports (injected after approval)
+        ...session.plugins.allExports(),
 
         // JS builtins
         console,

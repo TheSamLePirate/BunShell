@@ -116,6 +116,22 @@ export interface OsInteract {
   readonly kind: "os:interact";
 }
 
+/** Run Docker containers with specific images. */
+export interface DockerRun<I extends string = string> {
+  readonly kind: "docker:run";
+  readonly allowedImages: readonly I[];
+}
+
+/**
+ * Dynamic plugin capability — agents can write their own typed wrappers.
+ * The kind is a template literal: "plugin:my-tool", "plugin:deploy", etc.
+ * Plugin functions must declare their transitive core capabilities via RequireCap.
+ */
+export interface PluginCap<P extends string = string> {
+  readonly kind: `plugin:${P}`;
+  readonly pluginName: P;
+}
+
 /** Read secrets by scoped key pattern. */
 export interface SecretRead<K extends string = string> {
   readonly kind: "secret:read";
@@ -146,9 +162,15 @@ export type Capability =
   | NetConnect
   | OsInteract
   | SecretRead
-  | SecretWrite;
+  | SecretWrite
+  | DockerRun
+  | PluginCap;
 
-/** Discriminant values for all capabilities. */
+/**
+ * Discriminant values for all capabilities.
+ * Includes the open-ended `plugin:${string}` template literal
+ * so agents can declare custom plugin capabilities.
+ */
 export type CapabilityKind = Capability["kind"];
 
 // ---------------------------------------------------------------------------

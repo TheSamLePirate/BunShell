@@ -12,6 +12,11 @@
  */
 
 import { resolve, dirname, basename, join } from "node:path";
+import {
+  createLiveMount,
+  type LiveMountHandle,
+  type LiveMountOptions,
+} from "./live-mount";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -153,6 +158,29 @@ export interface VirtualFilesystem {
     vfsPath: string,
     options?: GitMountOptions,
   ): Promise<GitMountResult>;
+
+  /**
+   * Mount a live bi-directional sync between a disk directory and VFS.
+   *
+   * Disk changes (user edits in VS Code) propagate to VFS instantly.
+   * VFS writes propagate to disk (auto-flush) or accumulate as a
+   * reviewable diff (draft mode).
+   *
+   * @example
+   * ```ts
+   * const mount = await vfs.mountLive("/Users/olivier/project", "/workspace", {
+   *   policy: "auto-flush",
+   *   ignore: ["node_modules/**", ".git/**"],
+   * });
+   * // User and agent now share /workspace in real-time
+   * mount.unmount(); // Stop syncing
+   * ```
+   */
+  mountLive(
+    diskPath: string,
+    vfsPath: string,
+    options?: LiveMountOptions,
+  ): Promise<LiveMountHandle>;
 
   /** Sync a VFS directory back to disk. */
   syncToDisk(vfsPath: string, diskPath: string): Promise<void>;
@@ -596,7 +624,7 @@ export function createVfs(): VirtualFilesystem {
 
       // Step 3: Fetch file contents via Blobs API (batched)
       let totalSize = 0;
-      let filesLoaded = 0;  
+      let filesLoaded = 0;
       const BATCH_SIZE = 20;
 
       for (let i = 0; i < filesToFetch.length; i += BATCH_SIZE) {
@@ -677,6 +705,16 @@ export function createVfs(): VirtualFilesystem {
           await fsWrite(diskTarget, val.content);
         }
       }
+    },
+
+    async mountLive(
+      diskPath: string,
+      vfsPath: string,
+      options?: LiveMountOptions,
+    ): Promise<LiveMountHandle> {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const self = this;
+      return createLiveMount(self, diskPath, vfsPath, options);
     },
 
     get fileCount(): number {

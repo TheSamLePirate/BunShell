@@ -15,3 +15,11 @@ export type {
   GitMountOptions,
   GitMountResult,
 } from "./vfs";
+
+export { createLiveMount } from "./live-mount";
+export type {
+  LiveMountHandle,
+  LiveMountOptions,
+  LiveMountPolicy,
+  LiveMountDiff,
+} from "./live-mount";

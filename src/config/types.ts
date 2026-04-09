@@ -32,6 +32,8 @@
  *     db: { query: [] },
  *     secrets: { read: ["GITHUB_*"], write: [] },
  *     os: { interact: false },
+ *     docker: { run: ["node:20", "python:3.*"] },
+ *     plugins: ["deploy", "formatter"],
  *   },
  *
  *   secrets: {
@@ -40,7 +42,7 @@
  *
  *   vfs: {
  *     mount: [
- *       { from: ".", to: "/workspace" },
+ *       { live: ".", to: "/workspace", policy: "draft", ignore: ["node_modules/**"] },
  *       { git: "github://owner/repo@main/src", to: "/upstream", include: [".ts"] },
  *     ],
  *   },
@@ -102,6 +104,10 @@ export interface CapabilityConfig {
   readonly os?: {
     readonly interact?: boolean;
   };
+  readonly docker?: {
+    readonly run?: readonly string[];
+  };
+  readonly plugins?: readonly string[];
 }
 
 /** Secrets configuration. */
@@ -118,7 +124,7 @@ export interface VfsConfig {
   readonly mount?: readonly MountConfig[];
 }
 
-/** A single mount — either disk or git. */
+/** A single mount — disk, git, or live. */
 export type MountConfig =
   | { readonly from: string; readonly to: string }
   | {
@@ -127,6 +133,12 @@ export type MountConfig =
       readonly include?: readonly string[];
       readonly exclude?: readonly string[];
       readonly maxFiles?: number;
+    }
+  | {
+      readonly live: string;
+      readonly to: string;
+      readonly policy?: "auto-flush" | "draft";
+      readonly ignore?: readonly string[];
     };
 
 /** Audit output configuration. */

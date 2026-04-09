@@ -15,6 +15,10 @@ import type {
   SessionFsWriteParams,
   SessionFsListParams,
   SessionFsSnapshotParams,
+  PluginApprovalRequestParams,
+  PluginApproveParams,
+  PluginRejectParams,
+  PluginListParams,
 } from "./protocol";
 import { RPC_ERRORS } from "./protocol";
 import type { SessionManager } from "./session";
@@ -278,6 +282,116 @@ export async function handleRequest(
           snapshot: session.vfs.snapshot(),
           fileCount: session.vfs.fileCount,
           totalBytes: session.vfs.totalBytes,
+        });
+      }
+
+      // ---------------------------------------------------------------
+      // Plugin system
+      // ---------------------------------------------------------------
+      case "workspace.requestPluginApproval": {
+        const opts = p as PluginApprovalRequestParams;
+        if (!opts.sessionId || !opts.pluginName || !opts.source) {
+          return err(
+            id,
+            RPC_ERRORS.INVALID_PARAMS,
+            "sessionId, pluginName, and source required",
+          );
+        }
+        const session = mgr.get(opts.sessionId);
+        if (!session) {
+          return err(
+            id,
+            RPC_ERRORS.SESSION_NOT_FOUND,
+            `Session not found: ${opts.sessionId}`,
+          );
+        }
+        const pending = session.plugins.request(
+          opts.pluginName,
+          opts.source,
+          session.name,
+        );
+        return ok(id, {
+          pluginName: pending.name,
+          valid: pending.validation.valid,
+          errors: pending.validation.errors,
+          exports: pending.validation.exports,
+          status: pending.status,
+        });
+      }
+
+      case "workspace.approvePlugin": {
+        const opts = p as PluginApproveParams;
+        if (!opts.sessionId || !opts.pluginName) {
+          return err(
+            id,
+            RPC_ERRORS.INVALID_PARAMS,
+            "sessionId and pluginName required",
+          );
+        }
+        const session = mgr.get(opts.sessionId);
+        if (!session) {
+          return err(
+            id,
+            RPC_ERRORS.SESSION_NOT_FOUND,
+            `Session not found: ${opts.sessionId}`,
+          );
+        }
+        const loaded = await session.plugins.approve(
+          opts.pluginName,
+          session.ctx,
+        );
+        return ok(id, {
+          pluginName: loaded.name,
+          exports: loaded.exportNames,
+          status: "approved",
+        });
+      }
+
+      case "workspace.rejectPlugin": {
+        const opts = p as PluginRejectParams;
+        if (!opts.sessionId || !opts.pluginName) {
+          return err(
+            id,
+            RPC_ERRORS.INVALID_PARAMS,
+            "sessionId and pluginName required",
+          );
+        }
+        const session = mgr.get(opts.sessionId);
+        if (!session) {
+          return err(
+            id,
+            RPC_ERRORS.SESSION_NOT_FOUND,
+            `Session not found: ${opts.sessionId}`,
+          );
+        }
+        session.plugins.reject(opts.pluginName);
+        return ok(id, { pluginName: opts.pluginName, status: "rejected" });
+      }
+
+      case "workspace.listPlugins": {
+        const opts = p as PluginListParams;
+        if (!opts.sessionId) {
+          return err(id, RPC_ERRORS.INVALID_PARAMS, "sessionId required");
+        }
+        const session = mgr.get(opts.sessionId);
+        if (!session) {
+          return err(
+            id,
+            RPC_ERRORS.SESSION_NOT_FOUND,
+            `Session not found: ${opts.sessionId}`,
+          );
+        }
+        return ok(id, {
+          pending: session.plugins.listPending().map((p) => ({
+            name: p.name,
+            valid: p.validation.valid,
+            status: p.status,
+          })),
+          loaded: session.plugins.list().map((p) => ({
+            name: p.name,
+            exports: p.exportNames,
+            loadedAt: p.loadedAt.toISOString(),
+          })),
         });
       }
 

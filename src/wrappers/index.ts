@@ -151,3 +151,45 @@ export type { IntervalHandle, TimeoutHandle } from "./schedule";
 // User/group
 export { currentUser, users, groups } from "./user";
 export type { CurrentUser, UserEntry, GroupEntry } from "./user";
+
+// Docker (Compute Plane)
+export {
+  dockerRun,
+  dockerExec,
+  dockerVfsRun,
+  dockerBuild,
+  dockerPull,
+  dockerImages,
+  dockerPs,
+  dockerStop,
+  dockerRm,
+  dockerLogs,
+  dockerSpawnBackground,
+  dockerRunStreaming,
+  dockerRunProxied,
+  startEgressProxy,
+} from "./docker";
+// Dynamic plugins
+export { validatePlugin, createPluginRegistry } from "./dynamic";
+export type {
+  PluginValidationResult,
+  LoadedPlugin,
+  PendingPlugin,
+  PluginApprovalStatus,
+  PluginRegistry,
+} from "./dynamic";
+
+export type {
+  DockerRunResult,
+  DockerVfsRunResult,
+  DockerBuildResult,
+  DockerImage,
+  DockerContainer,
+  DockerRunOptions,
+  DockerVfsRunOptions,
+  DockerBuildOptions,
+  DockerDaemonHandle,
+  DockerStream,
+  EgressProxyHandle,
+  EgressProxyOptions,
+} from "./docker";
