@@ -18,3 +18,4 @@ export type { ReplOptions } from "./repl/index";
 export * from "./vfs/index";
 export * from "./server/index";
 export * from "./secrets/index";
+export * from "./config/index";
