@@ -9,7 +9,7 @@ BunShell is a **typed execution layer for AI agents**. TypeScript's type system 
 - **Runtime**: Bun (latest stable)
 - **Language**: TypeScript 5.x, strict mode, no `any`
 - **Package manager**: Bun
-- **Testing**: `bun:test` (439 tests)
+- **Testing**: `bun:test` (446 tests)
 - **Linting**: ESLint with typescript-eslint
 
 ## Commands
@@ -57,15 +57,15 @@ The shell runs `tsc --noEmit` before execution. Type errors block execution.
 
 ## Key Modules
 
-- **`src/capabilities/`** — 13 cap types, `RequireCap<K>` helper, builder, guard, presets, context
+- **`src/capabilities/`** — 13 cap types, `RequireCap<K>` helper, typed `CapabilityBuilder<K>`, `TypedCapabilitySet<K>`, guard, presets, context with overloaded `createContext`
 - **`src/wrappers/`** — 17 modules: fs, process, net, env, text, system, crypto, archive, stream, data, db, git, server, ws, os, schedule, user
 - **`src/pipe/`** — Array pipe (14 ops) + Stream pipe (15 lazy ops) + Viz (table, bar, spark, histogram)
 - **`src/audit/`** — Logger + 3 sinks (console, JSONL, EventEmitter)
 - **`src/agent/`** — VM-sandboxed subprocess execution
-- **`src/vfs/`** — In-memory virtual filesystem, session-scoped
+- **`src/vfs/`** — In-memory virtual filesystem, session-scoped, `mountGit()` for GitHub repos in RAM
 - **`src/server/`** — JSON-RPC 2.0 HTTP server, session manager
 - **`src/secrets/`** — Encrypted secret store (AES-256-GCM), state store, auth helpers (OAuth2, cookies)
-- **`src/repl/`** — pi-tui TUI shell, syntax highlighter, tsc integration, type explorer, autocompletion
+- **`src/repl/`** — pi-tui TUI shell, syntax highlighter, tsc integration (incremental, 5s timeout), type explorer (86 types), signatures (120+ functions), autocompletion
 
 ## Code Style
 
@@ -89,6 +89,9 @@ The shell runs `tsc --noEmit` before execution. Type errors block execution.
 - **JSON-RPC 2.0** for harness integration
 - **pi-tui** component-based TUI with differential rendering (header + output + editor)
 - **Live status header** — BunShell badge green/red/yellow based on background tsc result
-- **tsc --noEmit** before every REPL execution
+- **tsc --noEmit --incremental** before every REPL execution (cached preamble, fixed paths, 5s timeout)
+- **Typed builder** — `CapabilityBuilder<K>` accumulates kinds, `TypedCapabilitySet<K>` carries brand, `createContext` overload infers `CapabilityContext<K>`
+- **Function parameter hints** — 120+ signatures in `signatures.ts`, shown in TUI via `SignatureHint` component
+- **Git mounting** — `vfs.mountGit("github://owner/repo", "/path")` loads GitHub repos into VFS via Trees+Blobs API
 - **Secret values structurally impossible** to appear in audit logs (`[REDACTED]`)
 - **PBKDF2 key derivation** (100K iterations, SHA-512) for secret store master key

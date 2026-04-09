@@ -1055,6 +1055,94 @@ const snap = vfs.snapshot();  // { files: {...}, dirs: [...] }
 vfs.restore(snap);             // restore from snapshot
 ```
 
+### Git Mounting — GitHub Repos in RAM
+
+Mount GitHub repositories directly into the VFS without cloning. No disk access — the entire repo lives in memory. Uses the GitHub Trees API for the file tree and Blobs API for content.
+
+```typescript
+// Mount a full public repo
+const result = await vfs.mountGit("github://facebook/react", "/repo");
+// { owner: "facebook", repo: "react", ref: "a1b2c3d4",
+//   filesLoaded: 847, totalSize: 2_400_000, skipped: 12 }
+
+// Mount a specific branch + subdirectory with filters
+await vfs.mountGit("github://owner/repo@main/src", "/src", {
+  include: [".ts", ".tsx"],      // only TypeScript files
+  exclude: ["**/*.test.ts"],     // skip test files
+  maxFiles: 200,                 // cap on files to fetch
+  maxFileSize: 1_048_576,        // skip files > 1MB (binaries)
+  token: "ghp_...",              // for private repos or rate limits
+});
+
+// Now use all BunShell wrappers on the mounted repo
+vfs.readdir("/repo/src");                    // list directory
+vfs.readFile("/repo/README.md");             // read file
+vfs.glob("**/*.ts", "/repo");               // find TypeScript files
+const content = vfs.readFile("/src/index.ts"); // read from filtered mount
+```
+
+**URL format**: `github://owner/repo[@ref][/subpath]`
+- `@ref`: branch name, tag, or commit SHA (default: `HEAD`)
+- `/subpath`: mount only a subdirectory of the repo
+
+**How it works internally**:
+1. **Trees API** — single request gets the full recursive file tree with SHAs
+2. **Filter** — apply `include`, `exclude`, `maxFiles`, `maxFileSize` BEFORE fetching content
+3. **Blobs API** — fetch file contents in parallel batches of 20
+4. **Base64 decoding** — binary-safe content handling
+5. All data goes into the VFS Map — no disk, no temp files, pure RAM
+
+This directly addresses Theo's vision: "give them virtual file systems and stores based on your GitHub repos." The agent can `grep`, `ls`, and `cat` a GitHub repo without ever cloning it to disk.
+
+---
+
+## Typed Builder — Auto-Inferred Context Types
+
+The builder now tracks which capability kinds have been added through the chain at the type level. No manual type annotations needed.
+
+```typescript
+// The type K accumulates through the chain:
+capabilities()                    // CapabilityBuilder<never>
+  .fsRead("**")                   // CapabilityBuilder<"fs:read">
+  .spawn(["git"])                 // CapabilityBuilder<"fs:read" | "process:spawn">
+  .build()                        // TypedCapabilitySet<"fs:read" | "process:spawn">
+
+// createContext infers K from the TypedCapabilitySet:
+const ctx = createContext({
+  name: "agent",
+  capabilitySet: capabilities().fsRead("**").spawn(["git"]).build(),
+});
+// ctx is CapabilityContext<"fs:read" | "process:spawn"> — INFERRED
+
+await ls(ctx, ".");        // OK — ctx has fs:read
+await write(ctx, "/f", "d");  // TYPE ERROR — ctx has no fs:write
+```
+
+**How it works**:
+- `CapabilityBuilder<K>` is generic — each method returns `CapabilityBuilder<K | "the:kind">`
+- `build()` returns `TypedCapabilitySet<K>` — a branded `CapabilitySet` carrying `K`
+- `createContext` overload extracts `K` from `TypedCapabilitySet<K>` and returns `CapabilityContext<K>`
+- The old API (`capabilities: Capability[]`) still works — defaults to all capabilities
+
+---
+
+## Function Parameter Hints
+
+The TUI shell shows function signatures as you type. When you type a known function name followed by `(`, the hint appears below the editor:
+
+```
+› await ls(
+  ls(ctx, path?: string, options?: LsOptions) → FileEntry[]  — List directory
+
+› await pipe(
+  pipe(source, ...stages) → Promise<T>  — Array pipe chain
+
+› hash(
+  hash(data: string | Uint8Array, algo?: HashAlgorithm) → HashResult  — Hash data
+```
+
+120+ function signatures are registered in `src/repl/signatures.ts`. The detection uses a regex that matches the last unclosed function call in the input.
+
 ---
 
 ## Server Mode — Execution Backend

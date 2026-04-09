@@ -358,6 +358,32 @@ session.execute({ code: 'write("/hack", "bad")' })  // DENIED
 session.fs.snapshot()                                 // export full VFS
 ```
 
+### Git Mounting — GitHub repos in RAM
+
+Mount GitHub repositories directly into the VFS without cloning. No disk, all in RAM. Uses the GitHub Trees + Blobs API.
+
+```typescript
+// Mount a full repo
+await vfs.mountGit("github://facebook/react", "/repo");
+
+// Mount a subdirectory of a specific branch, filtered
+await vfs.mountGit("github://owner/repo@main/src", "/src", {
+  include: [".ts", ".tsx"],      // only these extensions
+  exclude: ["**/*.test.ts"],     // skip tests
+  maxFiles: 200,                 // cap
+  maxFileSize: 1_048_576,        // skip files > 1MB
+  token: "ghp_...",              // for private repos
+});
+// → { filesLoaded: 142, totalSize: 580_000, ref: "a1b2c3d4" }
+
+// Now use BunShell wrappers on the repo — entirely in memory
+vfs.readdir("/repo/src");
+vfs.readFile("/repo/README.md");
+vfs.glob("**/*.ts", "/repo");
+```
+
+URL format: `github://owner/repo[@ref][/subpath]`
+
 ## Secret & State Management
 
 ```typescript
@@ -392,7 +418,7 @@ const token = secrets.get(ctx, "GITHUB_TOKEN");  // decrypted on access
 bun run shell           # Interactive TypeScript shell (highlighted, type-checked)
 bun run shell:audit     # Shell with audit logging to console
 bun run server          # JSON-RPC server on port 7483
-bun test                # Run 439 tests
+bun test                # Run 446 tests
 bun run typecheck       # TypeScript type checking
 bun run check           # Both typecheck + tests
 ```
@@ -406,7 +432,7 @@ bun run check           # Both typecheck + tests
 ├───────────────── JSON-RPC 2.0 ───────────────────────┤
 │  BunShell Server       │  BunShell TUI Shell          │
 │  Sessions + VFS        │  pi-tui + syntax highlight   │
-│  + Audit               │  + live tsc type checking    │
+│  + Git Mount + Audit   │  + live tsc + param hints    │
 ├──────────────────────────────────────────────────────┤
 │  Secrets & Auth    Encrypted store, OAuth2, cookies   │
 │  Agent Sandbox     VM-isolated subprocess execution   │
@@ -421,12 +447,13 @@ bun run check           # Both typecheck + tests
 
 ## Stats
 
-- **20,500+ lines** of TypeScript
-- **439 tests**, 0 failures, 0 type errors
+- **22,000+ lines** of TypeScript
+- **446 tests**, 0 failures, 0 type errors
 - **80+ wrapper functions** across 17 modules
 - **13 capability types** enforced by the TypeScript compiler
+- **Typed builder** — capabilities auto-infer `CapabilityContext<K>` without annotation
 - **2 runtime dependencies**: `@mariozechner/pi-tui` (TUI), `chalk` (colors)
-- **30 commits** of incremental, tested development
+- **33 commits** of incremental, tested development
 
 ## License
 
