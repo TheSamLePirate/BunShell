@@ -65,7 +65,7 @@ The shell runs `tsc --noEmit` before execution. Type errors block execution.
 - **`src/vfs/`** — In-memory virtual filesystem, session-scoped
 - **`src/server/`** — JSON-RPC 2.0 HTTP server, session manager
 - **`src/secrets/`** — Encrypted secret store (AES-256-GCM), state store, auth helpers (OAuth2, cookies)
-- **`src/repl/`** — Raw terminal (real-time highlighting), tsc integration, type explorer, autocompletion
+- **`src/repl/`** — pi-tui TUI shell, syntax highlighter, tsc integration, type explorer, autocompletion
 
 ## Code Style
 
@@ -87,7 +87,8 @@ The shell runs `tsc --noEmit` before execution. Type errors block execution.
 - **Per-path recursive traversal checks** on ls, du, rm, cp
 - **Virtual filesystem** in server mode
 - **JSON-RPC 2.0** for harness integration
-- **Raw terminal mode** for real-time syntax highlighting (replaces readline)
+- **pi-tui** component-based TUI with differential rendering (header + output + editor)
+- **Live status header** — BunShell badge green/red/yellow based on background tsc result
 - **tsc --noEmit** before every REPL execution
 - **Secret values structurally impossible** to appear in audit logs (`[REDACTED]`)
 - **PBKDF2 key derivation** (100K iterations, SHA-512) for secret store master key

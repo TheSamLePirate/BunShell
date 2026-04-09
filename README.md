@@ -185,9 +185,43 @@ const child: CapabilityContext<"fs:read"> = parent.derive("child", [...]);
 
 ## The Shell
 
-### Real-Time Syntax Highlighting
+Built with [pi-tui](https://github.com/badlogic/pi-mono) — a component-based TUI framework with differential rendering.
 
-Every keystroke re-renders the line with colors. Raw terminal mode — no readline.
+### Layout
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  BunShell  ts ● ok                     .help │ .type │ .exit │  ← header (color = status)
+│                                                              │
+│  Try: await ls(ctx, ".") │ .type FileEntry │ .help           │
+│                                                              │
+│  › await ls(ctx, "src")                                      │  ← output (scrollable)
+│  // : FileEntry[7]                                           │
+│  FileEntry[7] [                                              │
+│    FileEntry { name: "capabilities", ... },                  │
+│    ...                                                       │
+│  ]                                                           │
+│                                                              │
+│  ▌await pipe(ls(ctx, "."), filter(f => f.isFile), toTable()) │  ← editor (multi-line, highlighted)
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Live Status Header
+
+The **BunShell** badge in the header changes color in real-time as you type:
+
+| Color | Meaning |
+|---|---|
+| **Green** `● ok` | Code type-checks — safe to execute |
+| **Red** `● type error` | tsc detected an error (shows the message) |
+| **Yellow** `◌ checking…` | tsc is running in the background |
+| **Cyan** `○` | Idle — empty input or dot command |
+
+The editor border follows the same color scheme.
+
+### Syntax Highlighting
+
+The editor highlights TypeScript as you type:
 
 | Token | Color | Example |
 |---|---|---|
@@ -203,24 +237,26 @@ Every keystroke re-renders the line with colors. Raw terminal mode — no readli
 
 ### Type Checking Before Execution
 
-Every time you press Enter, `tsc --noEmit` runs on your code with proper type declarations. If there are type errors — including capability violations — the code is **not executed**.
+Every time you press Enter, `tsc --noEmit` runs on your code. Type errors — including capability violations — block execution:
 
 ```
-bunshell ts > await write(readOnlyCtx, "/tmp/f", "data")
-error TS2345 (line 1:13): Argument of type 'CapabilityContext<"fs:read">'
+› await write(readOnlyCtx, "/tmp/f", "data")
+error TS2345 (1:13): Argument of type 'CapabilityContext<"fs:read">'
   is not assignable to parameter of type 'RequireCap<"fs:read", "fs:write">'
-1 type error — not executed (450ms)
+1 type error — not executed
 ```
+
+The header also shows errors live as you type (400ms debounce + ~1s tsc).
 
 ### Type Explorer
 
 ```
-bunshell ts > .type
+› .type
 Available types:
   AgentResult     AuditEntry      Capability      CapabilityContext
   FileEntry       GitCommit       SpawnResult     TypedDatabase    ...
 
-bunshell ts > .type Capability
+› .type Capability
 type Capability =
   | FSRead      { kind: "fs:read",     pattern: string }
   | FSWrite     { kind: "fs:write",    pattern: string }
@@ -237,7 +273,7 @@ type Capability =
 | `.vars` | Show defined variables with types |
 | `.caps` | Show current capabilities |
 | `.audit` | Show recent audit entries |
-| `.clear` | Clear screen |
+| `.clear` | Clear output |
 | `.exit` | Exit |
 
 ## 80+ Typed Wrappers
@@ -366,10 +402,11 @@ bun run check           # Both typecheck + tests
 ```
 ┌──────────────────────────────────────────────────────┐
 │              Any Agent Harness                        │
-│   Claude Code / Cursor / Custom Agent / Shell         │
+│   Claude Code / Cursor / Custom Agent                 │
 ├───────────────── JSON-RPC 2.0 ───────────────────────┤
-│              BunShell Server                          │
-│   Sessions × Virtual FS × Audit × Type Checking      │
+│  BunShell Server       │  BunShell TUI Shell          │
+│  Sessions + VFS        │  pi-tui + syntax highlight   │
+│  + Audit               │  + live tsc type checking    │
 ├──────────────────────────────────────────────────────┤
 │  Secrets & Auth    Encrypted store, OAuth2, cookies   │
 │  Agent Sandbox     VM-isolated subprocess execution   │
@@ -384,12 +421,12 @@ bun run check           # Both typecheck + tests
 
 ## Stats
 
-- **20,000+ lines** of TypeScript
+- **20,500+ lines** of TypeScript
 - **439 tests**, 0 failures, 0 type errors
 - **80+ wrapper functions** across 17 modules
 - **13 capability types** enforced by the TypeScript compiler
-- **0 runtime dependencies**
-- **25 commits** of incremental, tested development
+- **2 runtime dependencies**: `@mariozechner/pi-tui` (TUI), `chalk` (colors)
+- **30 commits** of incremental, tested development
 
 ## License
 

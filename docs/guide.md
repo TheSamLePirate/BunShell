@@ -1193,11 +1193,37 @@ error TS2345 (line 1:13): Argument of type 'CapabilityContext<"fs:read">'
 
 ---
 
-## Real-Time Syntax Highlighting
+## The TUI Shell
 
-The shell highlights code as you type using raw terminal mode. Every keystroke re-renders the current line with ANSI colors.
+Built with [pi-tui](https://github.com/badlogic/pi-mono) — a component-based terminal UI framework with differential rendering (only redraws changed lines).
 
-### Token Colors
+### Layout
+
+The shell has three components stacked vertically:
+
+1. **Header bar** — shows `BunShell` badge, type-check status, and help hints
+2. **Output area** — scrollable history of inputs, results, and errors
+3. **Editor** — pi-tui's Editor component with multi-line input, word wrap, history, and undo
+
+### Live Status
+
+The header badge and editor border change color based on real-time type checking (400ms debounce + ~1s tsc):
+
+| Color | Meaning |
+|---|---|
+| **Green** `● ok` | Code type-checks successfully |
+| **Red** `● type error` | tsc detected an error (shows the first error message) |
+| **Yellow** `◌ checking…` | tsc is running in the background |
+| **Cyan** `○` | Idle — empty input or dot command |
+
+### Syntax Highlighting
+
+The highlighter (`src/repl/highlight.ts`) uses a segmented regex approach:
+
+1. **Split** input into protected regions (strings, comments) and code regions
+2. **Color** protected regions: strings → green, comments → dim, capability kinds → yellow
+3. **Color** code regions: apply keyword, API, number, type, operator patterns
+4. **Marker system**: uses Unicode § characters as placeholders during multi-pass coloring to prevent double-highlighting
 
 | Token | Color | Examples |
 |---|---|---|
@@ -1211,21 +1237,14 @@ The shell highlights code as you type using raw terminal mode. Every keystroke r
 | Operators | **dim** | `===`, `=>`, `&&`, `\|\|`, `??` |
 | Comments | **dim** | `// comment`, `/* block */` |
 
-### How It Works Internally
+### tsc Integration
 
-The highlighter (`src/repl/highlight.ts`) uses a segmented regex approach:
+Before every execution, `typeCheck()` in `src/repl/typecheck.ts`:
 
-1. **Split** input into protected regions (strings, comments) and code regions
-2. **Color** protected regions: strings → green, comments → dim, capability kinds → yellow
-3. **Color** code regions: apply keyword, API, number, type, operator patterns
-4. **Marker system**: uses Unicode PUA characters as placeholders during multi-pass coloring to prevent double-highlighting
-
-The raw terminal (`src/repl/terminal.ts`) handles character-by-character input:
-- `process.stdin.setRawMode(true)` for raw key events
-- Full editing: arrows, home/end, Ctrl+A/E/K/U, backspace, delete
-- History with up/down arrows
-- Tab completion
-- Multi-line input with brace/paren depth tracking
+1. Generates a temp `.ts` file inside `.typecheck-tmp/` with all BunShell imports and `ctx` declared as `CapabilityContext<K>` with the session's exact capability kinds
+2. Runs `tsc --noEmit` with a standalone tsconfig
+3. Parses errors, maps line numbers back to user code
+4. If errors → blocks execution and shows them in the output area
 
 ---
 

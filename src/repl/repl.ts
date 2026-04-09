@@ -968,6 +968,240 @@ ${C.dim}// Eager transform — operates on full arrays${C.reset}`,
   ${C.cyan}reason${C.reset}?: string
 }`,
   HashAlgorithm: `${C.magenta}type${C.reset} ${C.cyan}HashAlgorithm${C.reset} = "sha256" | "sha512" | "sha1" | "md5" | "sha384"`,
+  // --- Capability interfaces ---
+  FSRead: `${C.magenta}interface${C.reset} ${C.cyan}FSRead${C.reset}<P = string> {
+  ${C.cyan}kind${C.reset}: "fs:read"
+  ${C.cyan}pattern${C.reset}: P
+}`,
+  FSWrite: `${C.magenta}interface${C.reset} ${C.cyan}FSWrite${C.reset}<P = string> {
+  ${C.cyan}kind${C.reset}: "fs:write"
+  ${C.cyan}pattern${C.reset}: P
+}`,
+  FSDelete: `${C.magenta}interface${C.reset} ${C.cyan}FSDelete${C.reset}<P = string> {
+  ${C.cyan}kind${C.reset}: "fs:delete"
+  ${C.cyan}pattern${C.reset}: P
+}`,
+  Spawn: `${C.magenta}interface${C.reset} ${C.cyan}Spawn${C.reset}<B = string> {
+  ${C.cyan}kind${C.reset}: "process:spawn"
+  ${C.cyan}allowedBinaries${C.reset}: readonly B[]
+}`,
+  NetFetch: `${C.magenta}interface${C.reset} ${C.cyan}NetFetch${C.reset}<D = string> {
+  ${C.cyan}kind${C.reset}: "net:fetch"
+  ${C.cyan}allowedDomains${C.reset}: readonly D[]
+  ${C.cyan}allowedPorts${C.reset}?: readonly number[]
+}`,
+  NetListen: `${C.magenta}interface${C.reset} ${C.cyan}NetListen${C.reset}<P = number> {
+  ${C.cyan}kind${C.reset}: "net:listen"
+  ${C.cyan}port${C.reset}: P
+}`,
+  EnvRead: `${C.magenta}interface${C.reset} ${C.cyan}EnvRead${C.reset}<K = string> {
+  ${C.cyan}kind${C.reset}: "env:read"
+  ${C.cyan}allowedKeys${C.reset}: readonly K[]
+}`,
+  EnvWrite: `${C.magenta}interface${C.reset} ${C.cyan}EnvWrite${C.reset}<K = string> {
+  ${C.cyan}kind${C.reset}: "env:write"
+  ${C.cyan}allowedKeys${C.reset}: readonly K[]
+}`,
+  DbQuery: `${C.magenta}interface${C.reset} ${C.cyan}DbQuery${C.reset}<P = string> {
+  ${C.cyan}kind${C.reset}: "db:query"
+  ${C.cyan}pattern${C.reset}: P
+}`,
+  NetConnect: `${C.magenta}interface${C.reset} ${C.cyan}NetConnect${C.reset}<H = string> {
+  ${C.cyan}kind${C.reset}: "net:connect"
+  ${C.cyan}allowedHosts${C.reset}: readonly H[]
+  ${C.cyan}allowedPorts${C.reset}?: readonly number[]
+}`,
+  OsInteract: `${C.magenta}interface${C.reset} ${C.cyan}OsInteract${C.reset} {
+  ${C.cyan}kind${C.reset}: "os:interact"
+}`,
+  SecretRead: `${C.magenta}interface${C.reset} ${C.cyan}SecretRead${C.reset}<K = string> {
+  ${C.cyan}kind${C.reset}: "secret:read"
+  ${C.cyan}allowedKeys${C.reset}: readonly K[]  ${C.dim}// glob patterns: "GITHUB_*"${C.reset}
+}`,
+  SecretWrite: `${C.magenta}interface${C.reset} ${C.cyan}SecretWrite${C.reset}<K = string> {
+  ${C.cyan}kind${C.reset}: "secret:write"
+  ${C.cyan}allowedKeys${C.reset}: readonly K[]
+}`,
+  RequireCap: `${C.magenta}type${C.reset} ${C.cyan}RequireCap${C.reset}<K, Required> =
+  [Required] ${C.magenta}extends${C.reset} [K] ? CapabilityContext<K> : ${C.yellow}never${C.reset}
+${C.dim}// If context K includes Required → returns the context
+// Otherwise → never (type error at call site)${C.reset}`,
+  CapabilityKind: `${C.magenta}type${C.reset} ${C.cyan}CapabilityKind${C.reset} = Capability["kind"]
+${C.dim}// = "fs:read" | "fs:write" | "fs:delete" | "process:spawn" | "net:fetch"
+//   | "net:listen" | "env:read" | "env:write" | "db:query" | "net:connect"
+//   | "os:interact" | "secret:read" | "secret:write"${C.reset}`,
+  GlobPattern: `${C.magenta}type${C.reset} ${C.cyan}GlobPattern${C.reset} = string
+${C.dim}// Runtime-validated via Bun.Glob. e.g. "/tmp/**", "*.ts"${C.reset}`,
+  // --- Secrets & Auth ---
+  SecretStore: `${C.magenta}interface${C.reset} ${C.cyan}SecretStore${C.reset} {
+  ${C.cyan}set${C.reset}(ctx, key: string, value: string, opts?): void
+  ${C.cyan}get${C.reset}(ctx, key: string): string | undefined
+  ${C.cyan}has${C.reset}(ctx, key: string): boolean
+  ${C.cyan}delete${C.reset}(ctx, key: string): boolean
+  ${C.cyan}keys${C.reset}(ctx): string[]
+  ${C.cyan}meta${C.reset}(ctx, key): { createdAt, updatedAt, expiresAt?, namespace }
+  ${C.cyan}rotateKey${C.reset}(newKey: Uint8Array): void
+  ${C.cyan}snapshot${C.reset}(): SecretStoreSnapshot
+  ${C.cyan}restore${C.reset}(snapshot): void
+  ${C.cyan}count${C.reset}: number
+}`,
+  SecretStoreSnapshot: `${C.magenta}interface${C.reset} ${C.cyan}SecretStoreSnapshot${C.reset} {
+  ${C.cyan}salt${C.reset}: string
+  ${C.cyan}hmac${C.reset}: string            ${C.dim}// integrity verification${C.reset}
+  ${C.cyan}secrets${C.reset}: Record<string, StoredSecret>
+  ${C.cyan}version${C.reset}: number
+}`,
+  StateStore: `${C.magenta}interface${C.reset} ${C.cyan}StateStore${C.reset} {
+  ${C.cyan}set${C.reset}<T>(ctx, key: string, value: T, ttl?: number): void
+  ${C.cyan}get${C.reset}<T>(ctx, key: string): T | undefined
+  ${C.cyan}has${C.reset}(ctx, key: string): boolean
+  ${C.cyan}delete${C.reset}(ctx, key: string): boolean
+  ${C.cyan}keys${C.reset}(ctx, pattern?: string): string[]
+  ${C.cyan}count${C.reset}: number
+  ${C.cyan}save${C.reset}(path): Promise<void>
+  ${C.cyan}load${C.reset}(path): Promise<void>
+}`,
+  OAuth2Token: `${C.magenta}interface${C.reset} ${C.cyan}OAuth2Token${C.reset} {
+  ${C.cyan}accessToken${C.reset}: string
+  ${C.cyan}tokenType${C.reset}: string
+  ${C.cyan}expiresIn${C.reset}?: number
+  ${C.cyan}refreshToken${C.reset}?: string
+  ${C.cyan}scope${C.reset}?: string
+}`,
+  OAuth2DeviceConfig: `${C.magenta}interface${C.reset} ${C.cyan}OAuth2DeviceConfig${C.reset} {
+  ${C.cyan}clientId${C.reset}: string
+  ${C.cyan}deviceUrl${C.reset}: string
+  ${C.cyan}tokenUrl${C.reset}: string
+  ${C.cyan}scopes${C.reset}?: string[]
+  ${C.cyan}onUserCode${C.reset}: (code: string, url: string) => void
+  ${C.cyan}pollInterval${C.reset}?: number
+  ${C.cyan}timeout${C.reset}?: number
+}`,
+  Cookie: `${C.magenta}interface${C.reset} ${C.cyan}Cookie${C.reset} {
+  ${C.cyan}name${C.reset}: string
+  ${C.cyan}value${C.reset}: string
+  ${C.cyan}domain${C.reset}: string
+  ${C.cyan}path${C.reset}: string
+  ${C.cyan}secure${C.reset}: boolean
+  ${C.cyan}httpOnly${C.reset}: boolean
+  ${C.cyan}expiresAt${C.reset}?: Date
+}`,
+  CookieJar: `${C.magenta}interface${C.reset} ${C.cyan}CookieJar${C.reset} {
+  ${C.cyan}set${C.reset}(domain: string, header: string): void
+  ${C.cyan}get${C.reset}(domain: string): string
+  ${C.cyan}getAll${C.reset}(domain: string): Cookie[]
+  ${C.cyan}clear${C.reset}(domain: string): void
+  ${C.cyan}clearAll${C.reset}(): void
+  ${C.cyan}fetch${C.reset}(ctx, url: string, init?): Promise<Response>
+}`,
+  // --- VFS ---
+  VirtualFilesystem: `${C.magenta}interface${C.reset} ${C.cyan}VirtualFilesystem${C.reset} {
+  ${C.cyan}writeFile${C.reset}(path, content): void
+  ${C.cyan}readFile${C.reset}(path): string
+  ${C.cyan}exists${C.reset}(path): boolean
+  ${C.cyan}stat${C.reset}(path): VfsStat
+  ${C.cyan}mkdir${C.reset}(path): void
+  ${C.cyan}readdir${C.reset}(path): VfsEntry[]
+  ${C.cyan}rm${C.reset}(path, opts?): void
+  ${C.cyan}cp${C.reset}(src, dest): void
+  ${C.cyan}mv${C.reset}(src, dest): void
+  ${C.cyan}glob${C.reset}(pattern, cwd?): string[]
+  ${C.cyan}mountFromDisk${C.reset}(diskPath, vfsPath): Promise<void>
+  ${C.cyan}syncToDisk${C.reset}(vfsPath, diskPath): Promise<void>
+  ${C.cyan}snapshot${C.reset}(): VfsSnapshot
+  ${C.cyan}restore${C.reset}(snapshot): void
+  ${C.cyan}fileCount${C.reset}: number
+  ${C.cyan}totalBytes${C.reset}: number
+}`,
+  VfsEntry: `${C.magenta}interface${C.reset} ${C.cyan}VfsEntry${C.reset} {
+  ${C.cyan}name${C.reset}: string
+  ${C.cyan}path${C.reset}: string
+  ${C.cyan}isFile${C.reset}: boolean
+  ${C.cyan}isDirectory${C.reset}: boolean
+  ${C.cyan}size${C.reset}: number
+  ${C.cyan}modifiedAt${C.reset}: Date
+}`,
+  VfsStat: `${C.magenta}interface${C.reset} ${C.cyan}VfsStat${C.reset} {
+  ${C.cyan}path${C.reset}: string
+  ${C.cyan}isFile${C.reset}: boolean
+  ${C.cyan}isDirectory${C.reset}: boolean
+  ${C.cyan}size${C.reset}: number
+  ${C.cyan}mode${C.reset}: number
+  ${C.cyan}createdAt${C.reset}: Date
+  ${C.cyan}modifiedAt${C.reset}: Date
+}`,
+  VfsSnapshot: `${C.magenta}interface${C.reset} ${C.cyan}VfsSnapshot${C.reset} {
+  ${C.cyan}files${C.reset}: Record<string, { content, mode, createdAt, modifiedAt }>
+  ${C.cyan}dirs${C.reset}: string[]
+}`,
+  // --- Server ---
+  BunShellServer: `${C.magenta}interface${C.reset} ${C.cyan}BunShellServer${C.reset} {
+  ${C.cyan}port${C.reset}: number
+  ${C.cyan}hostname${C.reset}: string
+  ${C.cyan}url${C.reset}: string
+  ${C.cyan}stop${C.reset}(): void
+}`,
+  ServerOptions: `${C.magenta}interface${C.reset} ${C.cyan}ServerOptions${C.reset} {
+  ${C.cyan}port${C.reset}?: number             ${C.dim}// default 7483${C.reset}
+  ${C.cyan}hostname${C.reset}?: string         ${C.dim}// default "127.0.0.1"${C.reset}
+  ${C.cyan}verbose${C.reset}?: boolean
+}`,
+  Session: `${C.magenta}interface${C.reset} ${C.cyan}Session${C.reset} {
+  ${C.cyan}id${C.reset}: string
+  ${C.cyan}name${C.reset}: string
+  ${C.cyan}ctx${C.reset}: CapabilityContext
+  ${C.cyan}vfs${C.reset}: VirtualFilesystem
+  ${C.cyan}audit${C.reset}: FullAuditLogger
+  ${C.cyan}createdAt${C.reset}: Date
+  ${C.cyan}executions${C.reset}: number
+  ${C.cyan}timeout${C.reset}: number
+}`,
+  JsonRpcRequest: `${C.magenta}interface${C.reset} ${C.cyan}JsonRpcRequest${C.reset} {
+  ${C.cyan}jsonrpc${C.reset}: "2.0"
+  ${C.cyan}id${C.reset}: string | number
+  ${C.cyan}method${C.reset}: string
+  ${C.cyan}params${C.reset}?: Record<string, unknown>
+}`,
+  JsonRpcResponse: `${C.magenta}interface${C.reset} ${C.cyan}JsonRpcResponse${C.reset} {
+  ${C.cyan}jsonrpc${C.reset}: "2.0"
+  ${C.cyan}id${C.reset}: string | number
+  ${C.cyan}result${C.reset}?: unknown
+  ${C.cyan}error${C.reset}?: { code: number, message: string, data?: unknown }
+}`,
+  // --- Audit ---
+  AuditLogger: `${C.magenta}interface${C.reset} ${C.cyan}AuditLogger${C.reset} {
+  ${C.cyan}log${C.reset}(capability: CapabilityKind, details: Record<string, unknown>): void
+}`,
+  AuditSink: `${C.magenta}interface${C.reset} ${C.cyan}AuditSink${C.reset} {
+  ${C.cyan}write${C.reset}(entry: AuditEntry): void | Promise<void>
+  ${C.cyan}flush${C.reset}?(): Promise<void>
+}`,
+  AuditQuery: `${C.magenta}interface${C.reset} ${C.cyan}AuditQuery${C.reset} {
+  ${C.cyan}agentId${C.reset}?: string
+  ${C.cyan}capability${C.reset}?: CapabilityKind
+  ${C.cyan}operation${C.reset}?: string
+  ${C.cyan}result${C.reset}?: "success" | "denied" | "error"
+  ${C.cyan}since${C.reset}?: Date
+  ${C.cyan}until${C.reset}?: Date
+  ${C.cyan}limit${C.reset}?: number
+}`,
+  // --- Agent ---
+  AgentConfig: `${C.magenta}interface${C.reset} ${C.cyan}AgentConfig${C.reset} {
+  ${C.cyan}name${C.reset}: string
+  ${C.cyan}script${C.reset}: string            ${C.dim}// path to agent .ts file${C.reset}
+  ${C.cyan}capabilities${C.reset}: Capability[]
+  ${C.cyan}timeout${C.reset}?: number
+  ${C.cyan}sinks${C.reset}?: AuditSink[]
+}`,
+  ServeOptions: `${C.magenta}interface${C.reset} ${C.cyan}ServeOptions${C.reset} {
+  ${C.cyan}port${C.reset}: number
+  ${C.cyan}hostname${C.reset}?: string
+  ${C.cyan}routes${C.reset}?: Record<string, RouteHandler>
+  ${C.cyan}handler${C.reset}?: RouteHandler
+}`,
+  StateSnapshot: `${C.magenta}interface${C.reset} ${C.cyan}StateSnapshot${C.reset} {
+  ${C.cyan}entries${C.reset}: Record<string, { value: string, updatedAt: string, ttl?: number }>
+}`,
 };
 
 function printType(name: string): void {
