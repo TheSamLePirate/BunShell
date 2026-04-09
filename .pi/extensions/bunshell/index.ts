@@ -14,6 +14,7 @@ import { bootstrap, getEnv, teardown } from "./src/bootstrap";
 import { buildPromptInjection } from "./src/prompt";
 import { formatStatus, formatCapsList } from "./src/ui/status";
 import { formatAuditWidget } from "./src/ui/audit";
+import { createCapsWidgetFactory } from "./src/ui/caps-widget";
 import { createFsTool } from "./src/tools/fs";
 import { createProcessTool } from "./src/tools/process";
 import { createNetTool } from "./src/tools/net";
@@ -26,6 +27,7 @@ import { createDockerTool } from "./src/tools/docker";
 // ---------------------------------------------------------------------------
 
 let opCount = 0;
+const capsWidget: ReturnType<typeof createCapsWidgetFactory> | null = null;
 
 export default function bunshellExtension(pi: ExtensionAPI) {
   // -------------------------------------------------------------------
@@ -79,8 +81,9 @@ export default function bunshellExtension(pi: ExtensionAPI) {
     // Status bar
     ctx.ui.setStatus("bunshell", formatStatus(env, 0));
 
-    // Capability widget
-    ctx.ui.setWidget("bunshell-caps", formatCapsList(env), {
+    // Capability widget (pi-tui component)
+    capsWidget = createCapsWidgetFactory(env);
+    ctx.ui.setWidget("bunshell-caps", capsWidget.factory as never, {
       placement: "belowEditor",
     });
 
@@ -110,7 +113,13 @@ export default function bunshellExtension(pi: ExtensionAPI) {
     const env = getEnv();
     if (!env) return;
 
-    ctx.ui.setStatus("bunshell", `● ${env.name} │ running...`);
+    const action =
+      (event as { input?: { action?: string } }).input?.action ?? "...";
+    ctx.ui.setStatus("bunshell", `● ${env.name} │ ${action}...`);
+
+    if (capsWidget) {
+      capsWidget.setLastAction(action);
+    }
   });
 
   pi.on("tool_execution_end", async (_event, ctx) => {
@@ -120,7 +129,12 @@ export default function bunshellExtension(pi: ExtensionAPI) {
     opCount++;
     ctx.ui.setStatus("bunshell", formatStatus(env, opCount));
 
-    // Update audit widget
+    if (capsWidget) {
+      capsWidget.setOpCount(opCount);
+      capsWidget.setLastAction("");
+    }
+
+    // Audit widget (string array — lightweight)
     ctx.ui.setWidget("bunshell-audit", formatAuditWidget(env.audit));
   });
 
@@ -161,5 +175,6 @@ export default function bunshellExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     await teardown();
     opCount = 0;
+    capsWidget = null;
   });
 }
