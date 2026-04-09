@@ -4,15 +4,18 @@
  * Connects to BunShell's JSON-RPC server (bun run server).
  * No Bun dependency — pure Node.js HTTP calls.
  *
- * The LLM gets two tools:
+ * The LLM gets three tools:
  * - bunshell_execute: run TypeScript code in a capability-checked session
  * - bunshell_fs: direct VFS file operations (read, write, list)
+ * - bunshell_audit: inspect the BunShell audit trail
+ *
+ * This extension also deactivates pi's built-in coding tools so the agent
+ * can only use BunShell tools.
  *
  * On session_start:
  * 1. Connect to BunShell server (default localhost:7483)
  * 2. Create a session with capabilities from .bunshell.ts
- * 3. Register tools
- * 4. Show status in pi's UI
+ * 3. Show status in pi's UI
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -56,6 +59,14 @@ async function rpc(
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
+
+const BUNSHELL_TOOL_NAMES = [
+  "bunshell_execute",
+  "bunshell_fs",
+  "bunshell_audit",
+] as const;
+
+const ALLOWED_TOOL_NAMES = new Set<string>(BUNSHELL_TOOL_NAMES);
 
 const state = {
   url: DEFAULT_URL,
@@ -119,6 +130,14 @@ export default function bunshellExtension(pi: ExtensionAPI) {
     state.opCount = 0;
     state.sessionId = null;
 
+    // Register tools + enforce only BunShell tools
+    pi.registerTool(
+      createExecuteTool() as Parameters<typeof pi.registerTool>[0],
+    );
+    pi.registerTool(createFsTool() as Parameters<typeof pi.registerTool>[0]);
+    pi.registerTool(createAuditTool() as Parameters<typeof pi.registerTool>[0]);
+    pi.setActiveTools([...BUNSHELL_TOOL_NAMES]);
+
     // Check if BunShell server is running
     try {
       const health = await fetch(state.url);
@@ -178,13 +197,6 @@ export default function bunshellExtension(pi: ExtensionAPI) {
     state.sessionName = session.name;
     state.capabilities = [...new Set(session.capabilities.map((c) => c.kind))];
 
-    // Register tools
-    pi.registerTool(
-      createExecuteTool() as Parameters<typeof pi.registerTool>[0],
-    );
-    pi.registerTool(createFsTool() as Parameters<typeof pi.registerTool>[0]);
-    pi.registerTool(createAuditTool() as Parameters<typeof pi.registerTool>[0]);
-
     // Status
     const capsShort = state.capabilities
       .map((c) => c.split(":")[0])
@@ -238,8 +250,16 @@ export default function bunshellExtension(pi: ExtensionAPI) {
   });
 
   // -------------------------------------------------------------------
-  // Tool execution tracking
+  // Tool enforcement + execution tracking
   // -------------------------------------------------------------------
+
+  pi.on("tool_call", async (event) => {
+    if (ALLOWED_TOOL_NAMES.has(event.toolName)) return;
+    return {
+      block: true,
+      reason: "Only BunShell tools are allowed in this project",
+    };
+  });
 
   pi.on("tool_execution_end", async (event, ctx) => {
     if (!event.toolName.startsWith("bunshell_")) return;
