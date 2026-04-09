@@ -974,6 +974,224 @@ const SIGNATURES = new Map<string, FunctionSignature>([
       description: "Create plugin registry",
     },
   ],
+
+  // cmux terminal multiplexer
+  [
+    "cmuxDetect",
+    { signature: "(ctx) → boolean", description: "Check if inside cmux" },
+  ],
+  [
+    "cmuxIdentify",
+    {
+      signature: "(ctx) → CmuxIdentity",
+      description: "Get current context IDs",
+    },
+  ],
+  [
+    "cmuxListWorkspaces",
+    { signature: "(ctx) → CmuxWorkspace[]", description: "List workspaces" },
+  ],
+  [
+    "cmuxNewWorkspace",
+    { signature: "(ctx, opts?) → string", description: "Create workspace" },
+  ],
+  [
+    "cmuxSelectWorkspace",
+    { signature: "(ctx, id) → void", description: "Switch workspace" },
+  ],
+  [
+    "cmuxCloseWorkspace",
+    { signature: "(ctx, id) → void", description: "Close workspace" },
+  ],
+  [
+    "cmuxRenameWorkspace",
+    { signature: "(ctx, title, id?) → void", description: "Rename workspace" },
+  ],
+  [
+    "cmuxListWindows",
+    { signature: "(ctx) → CmuxWindow[]", description: "List windows" },
+  ],
+  [
+    "cmuxNewWindow",
+    { signature: "(ctx) → string", description: "Create window" },
+  ],
+  [
+    "cmuxFocusWindow",
+    { signature: "(ctx, id) → void", description: "Focus window" },
+  ],
+  [
+    "cmuxNewSplit",
+    {
+      signature: "(ctx, direction, surfaceId?) → string",
+      description: "Create split",
+    },
+  ],
+  [
+    "cmuxListPanes",
+    {
+      signature: "(ctx, workspaceId?) → CmuxPane[]",
+      description: "List panes",
+    },
+  ],
+  [
+    "cmuxListSurfaces",
+    { signature: "(ctx) → CmuxSurface[]", description: "List surfaces" },
+  ],
+  [
+    "cmuxFocusPane",
+    {
+      signature: "(ctx, paneId, workspaceId?) → void",
+      description: "Focus pane",
+    },
+  ],
+  [
+    "cmuxCloseSurface",
+    { signature: "(ctx, surfaceId?) → void", description: "Close surface" },
+  ],
+  [
+    "cmuxTree",
+    { signature: "(ctx, opts?) → string", description: "Show workspace tree" },
+  ],
+  [
+    "cmuxSend",
+    {
+      signature: "(ctx, text, surfaceId?) → void",
+      description: "Send text to terminal",
+    },
+  ],
+  [
+    "cmuxSendKey",
+    {
+      signature: "(ctx, key, surfaceId?) → void",
+      description: "Send key press",
+    },
+  ],
+  [
+    "cmuxReadScreen",
+    {
+      signature: "(ctx, opts?) → CmuxScreenContent",
+      description: "Read terminal screen",
+    },
+  ],
+  [
+    "cmuxNotify",
+    {
+      signature: "(ctx, { title, body }) → void",
+      description: "Desktop notification",
+    },
+  ],
+  [
+    "cmuxSetStatus",
+    {
+      signature: "(ctx, key, value, opts?) → void",
+      description: "Set sidebar status",
+    },
+  ],
+  [
+    "cmuxClearStatus",
+    { signature: "(ctx, key) → void", description: "Clear sidebar status" },
+  ],
+  [
+    "cmuxSetProgress",
+    {
+      signature: "(ctx, value, label?) → void",
+      description: "Set progress bar",
+    },
+  ],
+  [
+    "cmuxClearProgress",
+    { signature: "(ctx) → void", description: "Clear progress bar" },
+  ],
+  [
+    "cmuxLog",
+    {
+      signature: "(ctx, message, opts?) → void",
+      description: "Add sidebar log entry",
+    },
+  ],
+  [
+    "cmuxClearLog",
+    { signature: "(ctx) → void", description: "Clear sidebar log" },
+  ],
+  [
+    "cmuxBrowserOpen",
+    {
+      signature: "(ctx, url, opts?) → string",
+      description: "Open browser surface",
+    },
+  ],
+  [
+    "cmuxBrowserNavigate",
+    {
+      signature: "(ctx, surfaceId, url) → void",
+      description: "Navigate browser",
+    },
+  ],
+  [
+    "cmuxBrowserClick",
+    {
+      signature: "(ctx, surfaceId, selector) → void",
+      description: "Click element",
+    },
+  ],
+  [
+    "cmuxBrowserFill",
+    {
+      signature: "(ctx, surfaceId, selector, text) → void",
+      description: "Fill input",
+    },
+  ],
+  [
+    "cmuxBrowserSnapshot",
+    {
+      signature: "(ctx, surfaceId, opts?) → string",
+      description: "A11y snapshot",
+    },
+  ],
+  [
+    "cmuxBrowserScreenshot",
+    { signature: "(ctx, surfaceId, path) → void", description: "Screenshot" },
+  ],
+  [
+    "cmuxBrowserEval",
+    {
+      signature: "(ctx, surfaceId, expr) → string",
+      description: "Eval JavaScript",
+    },
+  ],
+  [
+    "cmuxBrowserWait",
+    {
+      signature: "(ctx, surfaceId, opts) → void",
+      description: "Wait for condition",
+    },
+  ],
+  [
+    "cmuxBrowserGet",
+    {
+      signature: "(ctx, surfaceId, prop, sel?) → string",
+      description: "Get DOM property",
+    },
+  ],
+  [
+    "cmuxSetBuffer",
+    {
+      signature: "(ctx, text, name?) → void",
+      description: "Set clipboard buffer",
+    },
+  ],
+  [
+    "cmuxPasteBuffer",
+    { signature: "(ctx, opts?) → void", description: "Paste buffer" },
+  ],
+  [
+    "cmuxPing",
+    { signature: "(ctx) → boolean", description: "Check if cmux running" },
+  ],
+  [
+    "cmuxVersion",
+    { signature: "(ctx) → string", description: "Get cmux version" },
+  ],
 ]);
 
 // ---------------------------------------------------------------------------

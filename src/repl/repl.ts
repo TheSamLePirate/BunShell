@@ -642,6 +642,16 @@ ${C.yellow}Docker${C.reset} ${C.dim}(docker:run — Compute Plane)${C.reset}
 ${C.yellow}Live Mount${C.reset} ${C.dim}(bi-directional VFS ↔ disk)${C.reset}
   createLiveMount
 
+${C.yellow}cmux${C.reset} ${C.dim}(os:interact — terminal multiplexer)${C.reset}
+  cmuxDetect  cmuxIdentify  cmuxPing  cmuxVersion
+  cmuxListWorkspaces  cmuxNewWorkspace  cmuxSelectWorkspace  cmuxCloseWorkspace
+  cmuxListWindows  cmuxNewWindow  cmuxFocusWindow
+  cmuxNewSplit  cmuxListPanes  cmuxListSurfaces  cmuxFocusPane  cmuxTree
+  cmuxSend  cmuxSendKey  cmuxReadScreen
+  cmuxNotify  cmuxSetStatus  cmuxSetProgress  cmuxLog
+  cmuxBrowserOpen  cmuxBrowserNavigate  cmuxBrowserClick  cmuxBrowserFill
+  cmuxBrowserSnapshot  cmuxBrowserScreenshot  cmuxBrowserEval  cmuxBrowserWait
+
 ${C.yellow}Plugins${C.reset} ${C.dim}(plugin:* — dynamic wrappers)${C.reset}
   validatePlugin  createPluginRegistry
 
@@ -1157,6 +1167,28 @@ ${C.dim}// Eager transform — operates on full arrays${C.reset}`,
   ${C.cyan}exports${C.reset}: Record<string, unknown>
   ${C.cyan}exportNames${C.reset}: string[]
   ${C.cyan}loadedAt${C.reset}: Date
+}`,
+  CmuxWorkspace: `${C.magenta}interface${C.reset} ${C.cyan}CmuxWorkspace${C.reset} {
+  ${C.cyan}id${C.reset}: string
+  ${C.cyan}name${C.reset}: string
+  ${C.cyan}cwd${C.reset}: string
+  ${C.cyan}active${C.reset}: boolean
+}`,
+  CmuxSurface: `${C.magenta}interface${C.reset} ${C.cyan}CmuxSurface${C.reset} {
+  ${C.cyan}id${C.reset}: string
+  ${C.cyan}type${C.reset}: string
+  ${C.cyan}name${C.reset}: string
+  ${C.cyan}paneId${C.reset}: string
+}`,
+  CmuxIdentity: `${C.magenta}interface${C.reset} ${C.cyan}CmuxIdentity${C.reset} {
+  ${C.cyan}windowId${C.reset}: string
+  ${C.cyan}workspaceId${C.reset}: string
+  ${C.cyan}paneId${C.reset}: string
+  ${C.cyan}surfaceId${C.reset}: string
+}`,
+  CmuxScreenContent: `${C.magenta}interface${C.reset} ${C.cyan}CmuxScreenContent${C.reset} {
+  ${C.cyan}lines${C.reset}: string[]
+  ${C.cyan}surfaceId${C.reset}: string
 }`,
   RequireCap: `${C.magenta}type${C.reset} ${C.cyan}RequireCap${C.reset}<K, Required> =
   [Required] ${C.magenta}extends${C.reset} [K] ? CapabilityContext<K> : ${C.yellow}never${C.reset}
