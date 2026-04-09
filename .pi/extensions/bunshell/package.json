@@ -1,0 +1,9 @@
+{
+  "name": "bunshell-pi-extension",
+  "version": "0.1.0",
+  "description": "BunShell integration for pi-coding-agent — capability-checked typed execution",
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  }
+}
