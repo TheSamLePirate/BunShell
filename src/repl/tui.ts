@@ -21,6 +21,7 @@ import {
 import { highlightCode } from "./highlight";
 import { typeCheck } from "./typecheck";
 import { formatAuto } from "./format";
+import { getSignature, detectFunctionCall } from "./signatures";
 import type { CapabilityKind } from "../capabilities/types";
 
 // ---------------------------------------------------------------------------
@@ -120,6 +121,20 @@ class HeaderBar implements Component {
   }
 }
 
+/** Signature hint — shows function parameters below editor. */
+class SignatureHint implements Component {
+  hint = "";
+
+  invalidate(): void {
+    /* no cache */
+  }
+
+  render(): string[] {
+    if (!this.hint) return [];
+    return [chalk.dim("  ") + chalk.italic.dim(this.hint)];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main TUI REPL
 // ---------------------------------------------------------------------------
@@ -152,10 +167,12 @@ export function startTuiRepl(options: TuiReplOptions): void {
   };
 
   const editor = new Editor(tui, theme, { paddingX: 1 });
+  const sigHint = new SignatureHint();
 
-  // Layout: header → output → editor (minimal, clean)
+  // Layout: header → output → sigHint → editor
   tui.addChild(header);
   tui.addChild(output);
+  tui.addChild(sigHint);
   tui.addChild(editor);
 
   tui.setFocus(editor);
@@ -175,6 +192,21 @@ export function startTuiRepl(options: TuiReplOptions): void {
   }
 
   editor.onChange = (text: string) => {
+    // Signature hint detection
+    const funcName = detectFunctionCall(text);
+    const newHint = funcName
+      ? (() => {
+          const sig = getSignature(funcName);
+          return sig
+            ? `${funcName}${sig.signature}  ${chalk.dim("— " + sig.description)}`
+            : "";
+        })()
+      : "";
+    if (sigHint.hint !== newHint) {
+      sigHint.hint = newHint;
+      tui.requestRender();
+    }
+
     const code = text.trim();
     if (code.length === 0 || code.startsWith(".")) {
       setStatus("idle", "");

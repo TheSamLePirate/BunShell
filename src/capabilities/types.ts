@@ -193,6 +193,18 @@ export interface CapabilitySet {
   demand(required: Capability): void;
 }
 
+/**
+ * A CapabilitySet branded with the kinds it contains.
+ * Produced by the typed builder's build() method.
+ * Enables createContext to infer the K parameter automatically.
+ */
+export interface TypedCapabilitySet<
+  K extends CapabilityKind,
+> extends CapabilitySet {
+  /** Brand field for type inference. Not present at runtime. */
+  readonly __kinds?: K | undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Audit logger interface (minimal — full impl in Phase 4)
 // ---------------------------------------------------------------------------

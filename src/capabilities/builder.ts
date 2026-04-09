@@ -7,65 +7,51 @@
  * @module
  */
 
-import type { Capability, CapabilitySet, GlobPattern } from "./types";
+import type {
+  Capability,
+  CapabilityKind,
+  GlobPattern,
+  TypedCapabilitySet,
+} from "./types";
 import { createCapabilitySet } from "./guard";
 
 // ---------------------------------------------------------------------------
 // Builder interface
 // ---------------------------------------------------------------------------
 
-/** Fluent builder for constructing CapabilitySets. */
-export interface CapabilityBuilder {
-  /** Grant read access to paths matching the glob pattern. */
-  fsRead(pattern: GlobPattern): CapabilityBuilder;
-
-  /** Grant write access to paths matching the glob pattern. */
-  fsWrite(pattern: GlobPattern): CapabilityBuilder;
-
-  /** Grant delete access to paths matching the glob pattern. */
-  fsDelete(pattern: GlobPattern): CapabilityBuilder;
-
-  /** Grant permission to spawn specific binaries. */
-  spawn(binaries: readonly string[]): CapabilityBuilder;
-
-  /** Grant permission to fetch from specific domains. */
+/**
+ * Fluent builder for constructing typed CapabilitySets.
+ *
+ * The type parameter K accumulates which capability kinds have been added.
+ * When build() is called, it returns a TypedCapabilitySet<K> that carries
+ * the kind information, enabling createContext to infer CapabilityContext<K>.
+ *
+ * @typeParam K - Union of capability kinds added so far. Starts as `never`.
+ */
+export interface CapabilityBuilder<K extends CapabilityKind = never> {
+  fsRead(pattern: GlobPattern): CapabilityBuilder<K | "fs:read">;
+  fsWrite(pattern: GlobPattern): CapabilityBuilder<K | "fs:write">;
+  fsDelete(pattern: GlobPattern): CapabilityBuilder<K | "fs:delete">;
+  spawn(binaries: readonly string[]): CapabilityBuilder<K | "process:spawn">;
   netFetch(
     domains: readonly string[],
     ports?: readonly number[],
-  ): CapabilityBuilder;
-
-  /** Grant permission to listen on a specific port. */
-  netListen(port: number): CapabilityBuilder;
-
-  /** Grant permission to read specific environment variables. */
-  envRead(keys: readonly string[]): CapabilityBuilder;
-
-  /** Grant permission to write specific environment variables. */
-  envWrite(keys: readonly string[]): CapabilityBuilder;
-
-  /** Grant permission to query a database at a path. */
-  dbQuery(pattern: GlobPattern): CapabilityBuilder;
-
-  /** Grant permission for raw TCP/UDP connections to hosts. */
+  ): CapabilityBuilder<K | "net:fetch">;
+  netListen(port: number): CapabilityBuilder<K | "net:listen">;
+  envRead(keys: readonly string[]): CapabilityBuilder<K | "env:read">;
+  envWrite(keys: readonly string[]): CapabilityBuilder<K | "env:write">;
+  dbQuery(pattern: GlobPattern): CapabilityBuilder<K | "db:query">;
   netConnect(
     hosts: readonly string[],
     ports?: readonly number[],
-  ): CapabilityBuilder;
+  ): CapabilityBuilder<K | "net:connect">;
+  osInteract(): CapabilityBuilder<K | "os:interact">;
+  secretRead(keys: readonly string[]): CapabilityBuilder<K | "secret:read">;
+  secretWrite(keys: readonly string[]): CapabilityBuilder<K | "secret:write">;
+  add(capability: Capability): CapabilityBuilder<K | CapabilityKind>;
 
-  /** Grant permission for OS interaction (notifications, clipboard, open). */
-  osInteract(): CapabilityBuilder;
-
-  /** Grant permission to read secrets matching key patterns (glob). */
-  secretRead(keys: readonly string[]): CapabilityBuilder;
-
-  /** Grant permission to write secrets matching key patterns (glob). */
-  secretWrite(keys: readonly string[]): CapabilityBuilder;
-
-  /** Add a raw capability object. */
-  add(capability: Capability): CapabilityBuilder;
-
-  /** Freeze and return the immutable CapabilitySet. */
-  build(): CapabilitySet;
+  /** Freeze and return the immutable CapabilitySet, branded with tracked kinds. */
+  build(): TypedCapabilitySet<K>;
 
   /** Return the raw capability array (before creating a set). */
   toArray(): readonly Capability[];
@@ -88,10 +74,11 @@ export interface CapabilityBuilder {
  *   .build();
  * ```
  */
-export function capabilities(): CapabilityBuilder {
+export function capabilities(): CapabilityBuilder<never> {
   const items: Capability[] = [];
 
-  const builder: CapabilityBuilder = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const builder: any = {
     fsRead(pattern: GlobPattern): CapabilityBuilder {
       items.push({ kind: "fs:read", pattern });
       return builder;
@@ -178,7 +165,7 @@ export function capabilities(): CapabilityBuilder {
       return builder;
     },
 
-    build(): CapabilitySet {
+    build(): TypedCapabilitySet<CapabilityKind> {
       return createCapabilitySet(items);
     },
 
@@ -187,5 +174,5 @@ export function capabilities(): CapabilityBuilder {
     },
   };
 
-  return builder;
+  return builder as unknown as CapabilityBuilder<never>;
 }

@@ -11,7 +11,9 @@
 import {
   type Capability,
   type CapabilityContext,
+  type CapabilityKind,
   type CapabilitySet,
+  type TypedCapabilitySet,
   type AuditLogger,
   noopAuditLogger,
 } from "./types";
@@ -21,12 +23,24 @@ import { createCapabilitySet, checkCapability } from "./guard";
 // Context creation
 // ---------------------------------------------------------------------------
 
-/** Options for creating a new CapabilityContext. */
+/** Options for creating a new CapabilityContext (untyped — backward compat). */
 export interface CreateContextOptions {
   /** Human-readable name for this agent/context. */
   name: string;
   /** Capabilities to grant. */
   capabilities: readonly Capability[];
+  /** Optional audit logger (defaults to noop). */
+  audit?: AuditLogger | undefined;
+  /** Optional custom ID (auto-generated if omitted). */
+  id?: string | undefined;
+}
+
+/** Options for creating a typed CapabilityContext (new — auto-inferred K). */
+export interface CreateTypedContextOptions<K extends CapabilityKind> {
+  /** Human-readable name for this agent/context. */
+  name: string;
+  /** Typed capability set from builder.build(). */
+  capabilitySet: TypedCapabilitySet<K>;
   /** Optional audit logger (defaults to noop). */
   audit?: AuditLogger | undefined;
   /** Optional custom ID (auto-generated if omitted). */
@@ -41,27 +55,45 @@ function generateId(name: string): string {
 }
 
 /**
- * Create a new CapabilityContext — the primary way to start an execution.
+ * Create a new CapabilityContext.
+ *
+ * Two forms:
+ * - **Typed** (new): pass `capabilitySet` from builder.build() — K is auto-inferred
+ * - **Untyped** (legacy): pass `capabilities` array — returns CapabilityContext (all kinds)
  *
  * @example
  * ```ts
+ * // Typed — K is inferred as "fs:read" | "process:spawn"
  * const ctx = createContext({
- *   name: "log-analyzer",
- *   capabilities: [
- *     { kind: "fs:read", pattern: "/var/log/**" },
- *     { kind: "fs:write", pattern: "/tmp/reports/**" },
- *   ],
+ *   name: "agent",
+ *   capabilitySet: capabilities().fsRead("**").spawn(["git"]).build(),
+ * });
+ *
+ * // Untyped — backward compatible
+ * const ctx2 = createContext({
+ *   name: "agent",
+ *   capabilities: [{ kind: "fs:read", pattern: "**" }],
  * });
  * ```
  */
-export function createContext(
-  options: CreateContextOptions,
-): CapabilityContext {
+export function createContext<K extends CapabilityKind>(
+  options: CreateTypedContextOptions<K>,
+): CapabilityContext<K>;
+export function createContext(options: CreateContextOptions): CapabilityContext;
+export function createContext<K extends CapabilityKind>(
+  options: CreateContextOptions | CreateTypedContextOptions<K>,
+): CapabilityContext<K> {
   const id = options.id ?? generateId(options.name);
-  const caps = createCapabilitySet(options.capabilities);
   const audit = options.audit ?? noopAuditLogger;
 
-  return buildContext(id, options.name, caps, audit);
+  let caps: CapabilitySet;
+  if ("capabilitySet" in options) {
+    caps = options.capabilitySet;
+  } else {
+    caps = createCapabilitySet(options.capabilities);
+  }
+
+  return buildContext(id, options.name, caps, audit) as CapabilityContext<K>;
 }
 
 // ---------------------------------------------------------------------------

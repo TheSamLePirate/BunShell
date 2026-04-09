@@ -28,6 +28,7 @@ export type {
   CapabilityKind,
   CheckResult,
   CapabilitySet,
+  TypedCapabilitySet,
   AuditLogger,
   CapabilityContext,
 } from "./types";
@@ -45,7 +46,10 @@ export {
 
 // Context
 export { createContext } from "./context";
-export type { CreateContextOptions } from "./context";
+export type {
+  CreateContextOptions,
+  CreateTypedContextOptions,
+} from "./context";
 
 // Builder
 export { capabilities } from "./builder";

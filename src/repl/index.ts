@@ -27,3 +27,5 @@ export { typeCheck } from "./typecheck";
 export type { TypeCheckResult, TypeCheckError } from "./typecheck";
 export { startTuiRepl } from "./tui";
 export type { TuiReplOptions } from "./tui";
+export { getSignature, detectFunctionCall } from "./signatures";
+export type { FunctionSignature } from "./signatures";
