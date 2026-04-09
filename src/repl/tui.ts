@@ -118,10 +118,91 @@ function disableMouse(): void {
 
 /** Parsed mouse event. */
 interface MouseEvent {
-  readonly button: number; // 0=left, 1=middle, 2=right, 64=wheelUp, 65=wheelDown
+  readonly button: number; // 0=left, 1=middle, 2=right, 32=leftDrag, 64=wheelUp, 65=wheelDown
   readonly col: number; // 1-based
   readonly row: number; // 1-based
   readonly press: boolean; // true=press, false=release
+}
+
+// ---------------------------------------------------------------------------
+// Selection & clipboard
+// ---------------------------------------------------------------------------
+
+/** A text selection range (row/col are 1-based screen coordinates). */
+interface Selection {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+}
+
+/** Normalize selection so start <= end. */
+function normalizeSelection(sel: Selection): Selection {
+  if (
+    sel.startRow > sel.endRow ||
+    (sel.startRow === sel.endRow && sel.startCol > sel.endCol)
+  ) {
+    return {
+      startRow: sel.endRow,
+      startCol: sel.endCol,
+      endRow: sel.startRow,
+      endCol: sel.startCol,
+    };
+  }
+  return sel;
+}
+
+/** Copy text to system clipboard via OSC 52 + pbcopy/xclip fallback. */
+function copyToClipboard(text: string): void {
+  // OSC 52 — works in most modern terminals (iTerm2, kitty, WezTerm, etc.)
+  const b64 = Buffer.from(text).toString("base64");
+  process.stdout.write(`\x1b]52;c;${b64}\x07`);
+
+  // Fallback: pbcopy (macOS) or xclip (Linux)
+  try {
+    const cmd =
+      process.platform === "darwin"
+        ? ["pbcopy"]
+        : ["xclip", "-selection", "clipboard"];
+    const proc = Bun.spawn(cmd, { stdin: "pipe" });
+    proc.stdin.write(text);
+    proc.stdin.end();
+  } catch {
+    // Clipboard not available — OSC 52 was already sent
+  }
+}
+
+/** Read clipboard via pbpaste/xclip. */
+async function readClipboard(): Promise<string> {
+  try {
+    const cmd =
+      process.platform === "darwin"
+        ? ["pbpaste"]
+        : ["xclip", "-selection", "clipboard", "-o"];
+    const proc = Bun.spawn(cmd, { stdout: "pipe" });
+    const text = await new Response(proc.stdout).text();
+    return text;
+  } catch {
+    return "";
+  }
+}
+
+/** Apply inverted highlight to a portion of a line. */
+function highlightRange(line: string, fromCol: number, toCol: number): string {
+  // Strip ANSI to get visible characters, then map positions
+  const plain = line.replace(ANSI_RE, "");
+  const before = plain.slice(0, fromCol - 1);
+  const selected = plain.slice(fromCol - 1, toCol);
+  const after = plain.slice(toCol);
+
+  if (selected.length === 0) return line;
+
+  return before + chalk.bgWhite.black(selected) + after;
+}
+
+/** Extract plain text from a rendered line. */
+function plainText(line: string): string {
+  return line.replace(ANSI_RE, "");
 }
 
 /**
@@ -214,6 +295,51 @@ class OutputArea implements Component {
   scrollOffset = 0; // 0 = pinned to bottom (latest), positive = scrolled up
   auditCount = 0;
   execCount = 0;
+
+  /** Active selection (viewport-relative row, 1-based col). null = no selection. */
+  selection: Selection | null = null;
+
+  /** Clear selection. */
+  clearSelection(): void {
+    this.selection = null;
+  }
+
+  /**
+   * Get the plain text of the current selection.
+   * Rows are viewport-relative (1-based), cols are 1-based.
+   */
+  getSelectedText(_width: number): string {
+    if (!this.selection) return "";
+    const sel = normalizeSelection(this.selection);
+
+    // Get the viewport lines (same as render produces, but without highlight)
+    const endIdx = this.allLines.length - this.scrollOffset;
+    const startIdx = Math.max(0, endIdx - this.viewportHeight);
+    const visible = this.allLines.slice(startIdx, endIdx);
+
+    // Pad from top if needed (same as render)
+    while (visible.length < this.viewportHeight) {
+      visible.unshift("");
+    }
+
+    const lines: string[] = [];
+    for (let r = sel.startRow; r <= sel.endRow && r <= visible.length; r++) {
+      const raw = visible[r - 1] ?? "";
+      const plain = plainText(raw);
+
+      if (sel.startRow === sel.endRow) {
+        // Single line selection
+        lines.push(plain.slice(sel.startCol - 1, sel.endCol));
+      } else if (r === sel.startRow) {
+        lines.push(plain.slice(sel.startCol - 1));
+      } else if (r === sel.endRow) {
+        lines.push(plain.slice(0, sel.endCol));
+      } else {
+        lines.push(plain);
+      }
+    }
+    return lines.join("\n");
+  }
 
   addOutput(text: string): void {
     this.allLines.push(...text.split("\n"));
@@ -323,7 +449,6 @@ class OutputArea implements Component {
     const vh = this.viewportHeight;
 
     if (this.allLines.length === 0) {
-      // Fill viewport with empty lines to maintain fixed layout
       return new Array(vh).fill("");
     }
 
@@ -334,13 +459,22 @@ class OutputArea implements Component {
 
     // Truncate and pad to exact viewport height
     const lines = visible.map((line) => truncVis(line, width));
-
-    // Pad if not enough content to fill viewport
     while (lines.length < vh) {
-      lines.unshift(""); // pad from top
+      lines.unshift("");
     }
 
-    // Scroll indicators (replace first/last line if scrolled)
+    // Apply selection highlight
+    if (this.selection) {
+      const sel = normalizeSelection(this.selection);
+      for (let r = sel.startRow; r <= sel.endRow && r <= lines.length; r++) {
+        const line = lines[r - 1]!;
+        const fromCol = r === sel.startRow ? sel.startCol : 1;
+        const toCol = r === sel.endRow ? sel.endCol : visLen(line);
+        lines[r - 1] = highlightRange(line, fromCol, toCol);
+      }
+    }
+
+    // Scroll indicators
     if (startIdx > 0) {
       const aboveCount = startIdx;
       lines[0] = chalk.dim(
@@ -531,66 +665,212 @@ export function startTuiRepl(options: TuiReplOptions): void {
 
   enableMouse();
 
+  // Track double-click timing
+  let lastClickTime = 0;
+  let lastClickRow = 0;
+  let lastClickCol = 0;
+  let isDragging = false;
+
+  /** Convert screen row to output viewport row (1-based). */
+  function screenToOutputRow(screenRow: number): number {
+    // StatusBar is row 1, output starts at row 2
+    return screenRow - 1;
+  }
+
+  function isInOutputArea(screenRow: number): boolean {
+    const r = screenToOutputRow(screenRow);
+    return r >= 1 && r <= output.viewportHeight;
+  }
+
+  function updateScrollInfo(): void {
+    infoBar.scrollInfo = output.isScrolledUp
+      ? `↑${output.linesAbove} ↓${output.linesBelow}`
+      : "";
+  }
+
   // Intercept raw stdin for mouse events BEFORE pi-tui processes them
   process.stdin.prependListener("data", (data: Buffer) => {
     const str = data.toString();
     const mouse = parseMouseEvent(str);
-    if (!mouse) return; // Not a mouse event — let pi-tui handle it
+    if (!mouse) return;
 
-    if (mouse.press) {
-      // Wheel up (button 64)
-      if (mouse.button === 64) {
-        output.scroll(3); // Scroll up 3 lines
-        infoBar.scrollInfo = output.isScrolledUp
-          ? `↑${output.linesAbove} ↓${output.linesBelow}`
-          : "";
-        tui.requestRender();
-      }
-      // Wheel down (button 65)
-      else if (mouse.button === 65) {
-        output.scroll(-3); // Scroll down 3 lines
-        infoBar.scrollInfo = output.isScrolledUp
-          ? `↑${output.linesAbove} ↓${output.linesBelow}`
-          : "";
-        tui.requestRender();
-      }
-      // Left click (button 0)
-      else if (mouse.button === 0) {
-        const termH = process.stdout.rows ?? 24;
-        const termW = process.stdout.columns ?? 80;
+    const termH = process.stdout.rows ?? 24;
+    const termW = process.stdout.columns ?? 80;
 
-        // Click on InfoBar (last row)
-        if (mouse.row === termH) {
-          const rightStart = termW - 30;
-          if (mouse.col > rightStart) {
-            // Approximate positions of commands
-            const col = mouse.col - rightStart;
-            if (col >= 1 && col <= 6) {
-              // .help
-              editor.setText(".help");
-              editor.onSubmit?.(".help");
-            } else if (col >= 8 && col <= 14) {
-              // .type
-              editor.setText(".type");
-              editor.onSubmit?.(".type");
-            } else if (col >= 16 && col <= 21) {
-              // .caps
-              editor.setText(".caps");
-              editor.onSubmit?.(".caps");
-            } else if (col >= 23) {
-              // .exit
-              editor.setText(".exit");
-              editor.onSubmit?.(".exit");
-            }
+    // --- Wheel scroll ---
+    if (mouse.button === 64 && mouse.press) {
+      output.clearSelection();
+      output.scroll(3);
+      updateScrollInfo();
+      tui.requestRender();
+      return;
+    }
+    if (mouse.button === 65 && mouse.press) {
+      output.clearSelection();
+      output.scroll(-3);
+      updateScrollInfo();
+      tui.requestRender();
+      return;
+    }
+
+    // --- Middle click → paste from clipboard ---
+    if (mouse.button === 1 && mouse.press) {
+      readClipboard().then((text) => {
+        if (text) {
+          // Insert into editor at cursor
+          const current = editor.getText();
+          editor.setText(current + text);
+          tui.requestRender();
+        }
+      });
+      return;
+    }
+
+    // --- Left press (button 0) ---
+    if (mouse.button === 0 && mouse.press) {
+      const now = Date.now();
+
+      // Click on InfoBar (last row)
+      if (mouse.row === termH) {
+        output.clearSelection();
+        const rightStart = termW - 30;
+        if (mouse.col > rightStart) {
+          const col = mouse.col - rightStart;
+          if (col >= 1 && col <= 6) {
+            editor.setText(".help");
+            editor.onSubmit?.(".help");
+          } else if (col >= 8 && col <= 14) {
+            editor.setText(".type");
+            editor.onSubmit?.(".type");
+          } else if (col >= 16 && col <= 21) {
+            editor.setText(".caps");
+            editor.onSubmit?.(".caps");
+          } else if (col >= 23) {
+            editor.setText(".exit");
+            editor.onSubmit?.(".exit");
           }
         }
+        return;
+      }
 
-        // Click on StatusBar (first row) — toggle capability view
-        if (mouse.row === 1) {
-          editor.setText(".caps");
-          editor.onSubmit?.(".caps");
+      // Click on StatusBar (first row)
+      if (mouse.row === 1) {
+        output.clearSelection();
+        editor.setText(".caps");
+        editor.onSubmit?.(".caps");
+        return;
+      }
+
+      // Click in output area — start selection or double-click word select
+      if (isInOutputArea(mouse.row)) {
+        const outRow = screenToOutputRow(mouse.row);
+
+        // Double-click detection (< 400ms, same position)
+        if (
+          now - lastClickTime < 400 &&
+          lastClickRow === mouse.row &&
+          Math.abs(lastClickCol - mouse.col) <= 2
+        ) {
+          // Select full line first, then narrow to word under cursor
+          output.selection = {
+            startRow: outRow,
+            startCol: 1,
+            endRow: outRow,
+            endCol: termW,
+          };
+          // Narrow to the word under the cursor
+          const lineText = output.getSelectedText(termW).trim();
+          if (lineText) {
+            // Find word at column position
+            const words = lineText.split(/(\s+)/);
+            let pos = 0;
+            for (const word of words) {
+              if (
+                mouse.col >= pos + 1 &&
+                mouse.col <= pos + word.length &&
+                word.trim()
+              ) {
+                output.selection = {
+                  startRow: outRow,
+                  startCol: pos + 1,
+                  endRow: outRow,
+                  endCol: pos + word.length,
+                };
+                break;
+              }
+              pos += word.length;
+            }
+          }
+
+          // Copy word to clipboard
+          const selected = output.getSelectedText(termW);
+          if (selected.trim()) {
+            copyToClipboard(selected);
+            infoBar.scrollInfo = `copied: "${selected.slice(0, 30)}${selected.length > 30 ? "…" : ""}"`;
+          }
+
+          tui.requestRender();
+          lastClickTime = 0; // Reset to prevent triple-click
+          return;
+        }
+
+        // Single click — start selection
+        output.clearSelection();
+        output.selection = {
+          startRow: outRow,
+          startCol: mouse.col,
+          endRow: outRow,
+          endCol: mouse.col,
+        };
+        isDragging = true;
+        lastClickTime = now;
+        lastClickRow = mouse.row;
+        lastClickCol = mouse.col;
+        tui.requestRender();
+        return;
+      }
+
+      // Click elsewhere — clear selection
+      output.clearSelection();
+      isDragging = false;
+      tui.requestRender();
+      return;
+    }
+
+    // --- Left drag (button 32 = left + motion) ---
+    if (mouse.button === 32 && isDragging && output.selection) {
+      if (isInOutputArea(mouse.row)) {
+        output.selection.endRow = screenToOutputRow(mouse.row);
+        output.selection.endCol = mouse.col;
+      } else if (mouse.row <= 1) {
+        // Dragging above output — extend to top
+        output.selection.endRow = 1;
+        output.selection.endCol = 1;
+      } else {
+        // Dragging below output
+        output.selection.endRow = output.viewportHeight;
+        output.selection.endCol = termW;
+      }
+      tui.requestRender();
+      return;
+    }
+
+    // --- Left release (button 0, release) ---
+    if (mouse.button === 0 && !mouse.press) {
+      if (isDragging && output.selection) {
+        const sel = normalizeSelection(output.selection);
+        // Only copy if there's an actual range (not just a click)
+        if (sel.startRow !== sel.endRow || sel.startCol !== sel.endCol) {
+          const selected = output.getSelectedText(termW);
+          if (selected.trim()) {
+            copyToClipboard(selected);
+            infoBar.scrollInfo = `copied ${selected.split("\n").length} line${selected.split("\n").length > 1 ? "s" : ""}`;
+            tui.requestRender();
+          }
         }
       }
+      isDragging = false;
+      return;
     }
   });
 
@@ -753,7 +1033,9 @@ export function startTuiRepl(options: TuiReplOptions): void {
       chalk.cyan(".help"),
   );
   output.addOutput(
-    chalk.dim("  Mouse: scroll wheel ↕ output │ click infobar commands"),
+    chalk.dim(
+      "  Mouse: scroll ↕ │ drag to select │ double-click word │ middle-click paste",
+    ),
   );
   output.addOutput("");
 
