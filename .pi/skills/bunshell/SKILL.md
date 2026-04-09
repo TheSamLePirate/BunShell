@@ -1,6 +1,6 @@
 ---
 name: bunshell
-description: Execute TypeScript in a capability-checked BunShell session. Use for file operations, process spawning, network requests, Docker containers, git operations, data parsing, and piped transformations — all with typed structured output and compile-time permission enforcement.
+description: Execute TypeScript in a capability-checked BunShell session. Use for file operations, process spawning, network requests, Docker containers, git operations, data parsing, piped transformations, and cmux terminal multiplexer control — all with typed structured output and compile-time permission enforcement.
 ---
 
 # BunShell — Typed Execution in TypeScript
@@ -224,6 +224,136 @@ for await (const err of errors) {
 }
 ```
 
+### cmux Terminal Multiplexer (os:interact)
+
+Control cmux workspaces, panes, splits, send input, read output, manage sidebar, automate browsers — all from TypeScript. Requires `os:interact` capability and `cmux` CLI available.
+
+```typescript
+// Detection
+const running = await cmuxPing(ctx)
+const identity = await cmuxIdentify(ctx)
+// → { windowId, workspaceId, paneId, surfaceId }
+```
+
+#### Workspaces & Windows
+
+```typescript
+const workspaces = await cmuxListWorkspaces(ctx)
+const newWs = await cmuxNewWorkspace(ctx, { cwd: "~/project" })
+await cmuxSelectWorkspace(ctx, "workspace:2")
+await cmuxRenameWorkspace(ctx, "My Agent")
+await cmuxCloseWorkspace(ctx, "workspace:3")
+
+const windows = await cmuxListWindows(ctx)
+await cmuxNewWindow(ctx)
+await cmuxFocusWindow(ctx, "window:1")
+```
+
+#### Splits & Panes
+
+```typescript
+// Create splits (left, right, up, down)
+await cmuxNewSplit(ctx, "right")
+await cmuxNewSplit(ctx, "down", "surface:1")
+
+const panes = await cmuxListPanes(ctx)
+const surfaces = await cmuxListSurfaces(ctx)
+await cmuxFocusPane(ctx, "pane:2")
+
+// Show full layout tree
+const tree = await cmuxTree(ctx, { all: true })
+```
+
+#### Send Input & Read Output
+
+```typescript
+// Send commands to terminals (use \n for Enter)
+await cmuxSend(ctx, "npm test\n")
+await cmuxSend(ctx, "echo hello\n", "surface:2")
+
+// Send key presses
+await cmuxSendKey(ctx, "enter")
+await cmuxSendKey(ctx, "tab", "surface:3")
+
+// Read terminal screen content
+const screen = await cmuxReadScreen(ctx)
+const output = await cmuxReadScreen(ctx, {
+  surfaceId: "surface:2",
+  lines: 50,
+  scrollback: true,
+})
+// → { lines: string[], surfaceId: "surface:2" }
+```
+
+#### Notifications & Sidebar
+
+```typescript
+// Desktop notifications
+await cmuxNotify(ctx, { title: "Build", body: "All tests passed" })
+
+// Status pills in sidebar
+await cmuxSetStatus(ctx, "build", "passing", {
+  icon: "checkmark",
+  color: "#34c759",
+})
+await cmuxClearStatus(ctx, "build")
+
+// Progress bar
+await cmuxSetProgress(ctx, 0.5, "Compiling...")
+await cmuxSetProgress(ctx, 1.0, "Done")
+await cmuxClearProgress(ctx)
+
+// Log entries
+await cmuxLog(ctx, "Build started", { level: "info", source: "build" })
+await cmuxLog(ctx, "All 42 tests passed", { level: "success" })
+await cmuxClearLog(ctx)
+```
+
+#### Browser Automation
+
+```typescript
+// Open embedded browser
+const surfaceId = await cmuxBrowserOpen(ctx, "https://example.com")
+const splitId = await cmuxBrowserOpen(ctx, "https://docs.api.com", { split: true })
+
+// Navigate
+await cmuxBrowserNavigate(ctx, surfaceId, "https://other.com")
+
+// DOM interaction
+await cmuxBrowserClick(ctx, surfaceId, "button[type='submit']")
+await cmuxBrowserFill(ctx, surfaceId, "#email", "user@example.com")
+
+// Inspect
+const snapshot = await cmuxBrowserSnapshot(ctx, surfaceId, { interactive: true, compact: true })
+await cmuxBrowserScreenshot(ctx, surfaceId, "/tmp/page.png")
+const title = await cmuxBrowserGet(ctx, surfaceId, "title")
+const text = await cmuxBrowserGet(ctx, surfaceId, "text", "h1")
+
+// Wait for conditions
+await cmuxBrowserWait(ctx, surfaceId, { selector: "#checkout", timeoutMs: 15000 })
+await cmuxBrowserWait(ctx, surfaceId, { text: "Order confirmed" })
+
+// Execute JavaScript
+const result = await cmuxBrowserEval(ctx, surfaceId, "document.title")
+```
+
+#### Multi-Agent Orchestration
+
+```typescript
+// Create workspace with two agent terminals
+await cmuxNewWorkspace(ctx, { cwd: "~/project" })
+await cmuxNewSplit(ctx, "right")
+
+const surfaces = await cmuxListSurfaces(ctx)
+// Send different tasks to each surface
+await cmuxSend(ctx, "claude 'implement auth module'\n", surfaces[0].id)
+await cmuxSend(ctx, "claude 'write tests for auth'\n", surfaces[1].id)
+
+// Monitor progress
+const output1 = await cmuxReadScreen(ctx, { surfaceId: surfaces[0].id, lines: 20 })
+const output2 = await cmuxReadScreen(ctx, { surfaceId: surfaces[1].id, lines: 20 })
+```
+
 ## Tool: `bunshell_fs`
 
 Direct VFS file operations without writing code:
@@ -265,7 +395,11 @@ Capability denied [fs:write]: Path "/etc/passwd" does not match pattern "/worksp
 | `WriteResult` | bytesWritten, path |
 | `HashResult` | hex, base64, bytes |
 | `DiskUsage` | path, bytes, human, files, directories |
+| `CmuxWorkspace` | id, name, cwd, active |
+| `CmuxSurface` | id, type, name, paneId |
+| `CmuxIdentity` | windowId, workspaceId, paneId, surfaceId |
+| `CmuxScreenContent` | lines, surfaceId |
 
 ## Reference
 
-See [API reference](references/api-reference.md) for the full list of 90+ functions.
+See [API reference](references/api-reference.md) for the full list of 130+ functions.

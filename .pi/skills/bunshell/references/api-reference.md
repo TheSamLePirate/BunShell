@@ -1,6 +1,6 @@
 # BunShell API Reference
 
-All functions are available in `bunshell_execute`. Use `ctx` as the first argument for capability-checked functions. Use `await` for async.
+All functions are available in `bunshell_execute`. Use `ctx` as the first argument for capability-checked functions. Use `await` for async. 130+ functions total.
 
 ## Filesystem (fs:read, fs:write, fs:delete)
 
@@ -224,6 +224,95 @@ All functions are available in `bunshell_execute`. Use `ctx` as the first argume
 | `sFirst` | `(stream)` |
 | `sForEach` | `(stream, fn)` |
 | `sToFile` | `(stream, path)` |
+
+## cmux Terminal Multiplexer (os:interact)
+
+### Detection & Utility
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `cmuxDetect` | `(ctx)` | `boolean` |
+| `cmuxIdentify` | `(ctx)` | `CmuxIdentity` |
+| `cmuxPing` | `(ctx)` | `boolean` |
+| `cmuxVersion` | `(ctx)` | `string` |
+| `cmuxDisplayMessage` | `(ctx, text)` | `void` |
+
+### Workspaces
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `cmuxListWorkspaces` | `(ctx)` | `CmuxWorkspace[]` |
+| `cmuxNewWorkspace` | `(ctx, opts?)` | `string` |
+| `cmuxSelectWorkspace` | `(ctx, id)` | `void` |
+| `cmuxCloseWorkspace` | `(ctx, id)` | `void` |
+| `cmuxRenameWorkspace` | `(ctx, title, id?)` | `void` |
+
+### Windows
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `cmuxListWindows` | `(ctx)` | `CmuxWindow[]` |
+| `cmuxNewWindow` | `(ctx)` | `string` |
+| `cmuxFocusWindow` | `(ctx, id)` | `void` |
+
+### Panes, Splits & Surfaces
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `cmuxNewSplit` | `(ctx, direction, surfaceId?)` | `string` |
+| `cmuxListPanes` | `(ctx, workspaceId?)` | `CmuxPane[]` |
+| `cmuxListSurfaces` | `(ctx)` | `CmuxSurface[]` |
+| `cmuxFocusPane` | `(ctx, paneId, workspaceId?)` | `void` |
+| `cmuxCloseSurface` | `(ctx, surfaceId?)` | `void` |
+| `cmuxTree` | `(ctx, opts?)` | `string` |
+
+### Input & Output
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `cmuxSend` | `(ctx, text, surfaceId?)` | `void` |
+| `cmuxSendKey` | `(ctx, key, surfaceId?)` | `void` |
+| `cmuxReadScreen` | `(ctx, opts?)` | `CmuxScreenContent` |
+
+### Notifications
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `cmuxNotify` | `(ctx, { title, body, subtitle? })` | `void` |
+| `cmuxClearNotifications` | `(ctx)` | `void` |
+
+### Sidebar (Status, Progress, Log)
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `cmuxSetStatus` | `(ctx, key, value, opts?)` | `void` |
+| `cmuxClearStatus` | `(ctx, key)` | `void` |
+| `cmuxSetProgress` | `(ctx, value, label?)` | `void` |
+| `cmuxClearProgress` | `(ctx)` | `void` |
+| `cmuxLog` | `(ctx, message, opts?)` | `void` |
+| `cmuxClearLog` | `(ctx)` | `void` |
+| `cmuxSidebarState` | `(ctx, workspaceId?)` | `unknown` |
+
+### Browser Automation
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `cmuxBrowserOpen` | `(ctx, url, opts?)` | `string` |
+| `cmuxBrowserNavigate` | `(ctx, surfaceId, url)` | `void` |
+| `cmuxBrowserClick` | `(ctx, surfaceId, selector)` | `void` |
+| `cmuxBrowserFill` | `(ctx, surfaceId, selector, text)` | `void` |
+| `cmuxBrowserSnapshot` | `(ctx, surfaceId, opts?)` | `string` |
+| `cmuxBrowserScreenshot` | `(ctx, surfaceId, outPath)` | `void` |
+| `cmuxBrowserEval` | `(ctx, surfaceId, expression)` | `string` |
+| `cmuxBrowserWait` | `(ctx, surfaceId, opts)` | `void` |
+| `cmuxBrowserGet` | `(ctx, surfaceId, property, selector?)` | `string` |
+
+### Clipboard / Buffers
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `cmuxSetBuffer` | `(ctx, text, name?)` | `void` |
+| `cmuxPasteBuffer` | `(ctx, opts?)` | `void` |
 
 ## 14 Capability Types
 
