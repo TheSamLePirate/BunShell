@@ -14,6 +14,13 @@ import type { Capability, CapabilityContext } from "../capabilities/types";
 import { createContext } from "../capabilities/context";
 import { createAuditLogger, type FullAuditLogger } from "../audit/logger";
 import { createVfs, type VirtualFilesystem } from "../vfs/vfs";
+import type { AuditEntry } from "../audit/types";
+import { streamSink, type AuditStream } from "../audit/sinks/stream";
+import type {
+  AdminAuditQueryParams,
+  AdminAuditQueryResult,
+  AdminStatsResult,
+} from "./protocol";
 
 // BunShell modules injected into eval scope
 import * as capsMod from "../capabilities/index";
@@ -76,6 +83,15 @@ export interface SessionManager {
     code: string,
     timeout?: number,
   ): Promise<ExecResult>;
+
+  /** Global audit stream for SSE. */
+  readonly auditStream: AuditStream;
+
+  /** Query audit entries across all sessions (active + destroyed). */
+  queryAudit(query: AdminAuditQueryParams): AdminAuditQueryResult;
+
+  /** Aggregated server statistics. */
+  stats(): AdminStatsResult;
 }
 
 let counter = 0;
@@ -96,15 +112,121 @@ let counter = 0;
  */
 export function createSessionManager(): SessionManager {
   const sessions = new Map<string, Session>();
+  const globalAuditStream = streamSink();
+  const globalEntries: AuditEntry[] = [];
+  const startedAt = Date.now();
+  const counters = { totalSessionsCreated: 0, totalExecutions: 0 };
+
+  // Collect all entries into the global array via the stream
+  globalAuditStream.on("entry", (entry: AuditEntry) => {
+    globalEntries.push(entry);
+  });
 
   return {
+    auditStream: globalAuditStream,
+
+    queryAudit(query: AdminAuditQueryParams): AdminAuditQueryResult {
+      let filtered = globalEntries.slice();
+
+      if (query.sessionId) {
+        filtered = filtered.filter((e) => e.agentId === query.sessionId);
+      }
+      if (query.capability) {
+        filtered = filtered.filter((e) => e.capability === query.capability);
+      }
+      if (query.operation) {
+        filtered = filtered.filter((e) => e.operation === query.operation);
+      }
+      if (query.result) {
+        filtered = filtered.filter((e) => e.result === query.result);
+      }
+      if (query.since) {
+        const since = new Date(query.since);
+        filtered = filtered.filter((e) => e.timestamp >= since);
+      }
+      if (query.until) {
+        const until = new Date(query.until);
+        filtered = filtered.filter((e) => e.timestamp <= until);
+      }
+
+      const total = filtered.length;
+      const offset = query.offset ?? 0;
+      const limit = query.limit ?? 100;
+      const page = filtered.reverse().slice(offset, offset + limit);
+
+      return {
+        entries: page.map((e) => ({
+          sessionId: e.agentId,
+          sessionName: e.agentName,
+          timestamp: e.timestamp.toISOString(),
+          capability: e.capability,
+          operation: e.operation,
+          args: e.args,
+          result: e.result,
+          error: e.error,
+          duration: e.duration,
+          parentId: e.parentId,
+        })),
+        total,
+        hasMore: offset + limit < total,
+      };
+    },
+
+    stats(): AdminStatsResult {
+      const capMap = new Map<
+        string,
+        { count: number; denied: number; errors: number }
+      >();
+      for (const e of globalEntries) {
+        const entry = capMap.get(e.capability) ?? {
+          count: 0,
+          denied: 0,
+          errors: 0,
+        };
+        entry.count++;
+        if (e.result === "denied") entry.denied++;
+        if (e.result === "error") entry.errors++;
+        capMap.set(e.capability, entry);
+      }
+
+      const recentErrors = globalEntries
+        .filter((e) => e.result === "error" || e.result === "denied")
+        .slice(-10)
+        .reverse()
+        .map((e) => ({
+          sessionId: e.agentId,
+          sessionName: e.agentName,
+          timestamp: e.timestamp.toISOString(),
+          capability: e.capability,
+          operation: e.operation,
+          error: e.error ?? "denied",
+        }));
+
+      return {
+        uptime: Date.now() - startedAt,
+        activeSessions: sessions.size,
+        totalSessionsCreated: counters.totalSessionsCreated,
+        totalExecutions: counters.totalExecutions,
+        totalAuditEntries: globalEntries.length,
+        capabilityBreakdown: [...capMap.entries()].map(([cap, v]) => ({
+          capability: cap,
+          count: v.count,
+          denied: v.denied,
+          errors: v.errors,
+        })),
+        recentErrors,
+      };
+    },
+
     create(opts) {
       counter++;
+      counters.totalSessionsCreated++;
       const id = `session-${counter}-${Date.now().toString(36)}`;
 
       const audit = createAuditLogger({
         agentId: id,
         agentName: opts.name,
+        sinks: [globalAuditStream],
       });
 
       const ctx = createContext({
@@ -164,6 +286,7 @@ export function createSessionManager(): SessionManager {
       if (!session) throw new Error(`Session not found: ${sessionId}`);
 
       session.executions++;
+      counters.totalExecutions++;
       const start = performance.now();
 
       // Transpile TS to JS
@@ -178,10 +301,69 @@ export function createSessionManager(): SessionManager {
       }
 
       // Build evaluation scope — VFS wrappers + BunShell pure modules
+      //
+      // The `vfs` object is an audited proxy so that even direct calls
+      // like `vfs.readdir("/")` produce audit entries.  The convenience
+      // functions (ls, cat, write …) also audit and check capabilities.
+      const auditedVfs = {
+        readdir(path: string) {
+          session.audit.log("fs:read", { op: "vfs.readdir", path });
+          return session.vfs.readdir(path);
+        },
+        readFile(path: string) {
+          session.audit.log("fs:read", { op: "vfs.readFile", path });
+          return session.vfs.readFile(path);
+        },
+        writeFile(path: string, content: string) {
+          session.audit.log("fs:write", { op: "vfs.writeFile", path });
+          session.vfs.writeFile(path, content);
+        },
+        exists(path: string) {
+          return session.vfs.exists(path);
+        },
+        stat(path: string) {
+          session.audit.log("fs:read", { op: "vfs.stat", path });
+          return session.vfs.stat(path);
+        },
+        mkdir(path: string) {
+          session.audit.log("fs:write", { op: "vfs.mkdir", path });
+          session.vfs.mkdir(path);
+        },
+        rm(path: string, opts?: { recursive?: boolean }) {
+          session.audit.log("fs:delete", { op: "vfs.rm", path });
+          session.vfs.rm(path, opts);
+        },
+        cp(src: string, dest: string) {
+          session.audit.log("fs:read", {
+            op: "vfs.cp",
+            path: `${src} → ${dest}`,
+          });
+          session.vfs.cp(src, dest);
+        },
+        append(path: string, content: string) {
+          session.audit.log("fs:write", { op: "vfs.append", path });
+          session.vfs.append(path, content);
+        },
+        glob(pattern: string, cwd?: string) {
+          session.audit.log("fs:read", { op: "vfs.glob", path: pattern });
+          return session.vfs.glob(pattern, cwd);
+        },
+        snapshot() {
+          session.audit.log("fs:read", { op: "vfs.snapshot" });
+          return session.vfs.snapshot();
+        },
+        get fileCount() {
+          return session.vfs.fileCount;
+        },
+        get totalBytes() {
+          return session.vfs.totalBytes;
+        },
+      };
+
       const scope: Record<string, any> = {
         ctx: session.ctx,
         audit: session.audit,
-        vfs: session.vfs,
+        vfs: auditedVfs,
 
         // VFS-backed file operations (shadow real FS wrappers)
         ls: (path: string = "/") => {

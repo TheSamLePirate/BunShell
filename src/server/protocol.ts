@@ -51,6 +51,7 @@ export const RPC_ERRORS = {
   TIMEOUT: -32004,
   PLUGIN_VALIDATION_FAILED: -32005,
   PLUGIN_NOT_FOUND: -32006,
+  CONFIG_NOT_FOUND: -32007,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -217,4 +218,202 @@ export interface PluginRejectParams {
 /** workspace.listPlugins — list all plugins in a session. */
 export interface PluginListParams {
   readonly sessionId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Admin API types
+// ---------------------------------------------------------------------------
+
+/** admin.audit.query — cross-session audit query. */
+export interface AdminAuditQueryParams {
+  readonly sessionId?: string;
+  readonly capability?: string;
+  readonly operation?: string;
+  readonly result?: "success" | "denied" | "error";
+  readonly since?: string;
+  readonly until?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+export interface AdminAuditQueryResult {
+  readonly entries: ReadonlyArray<{
+    readonly sessionId: string;
+    readonly sessionName: string;
+    readonly timestamp: string;
+    readonly capability: string;
+    readonly operation: string;
+    readonly args: Record<string, unknown>;
+    readonly result: string;
+    readonly error?: string | undefined;
+    readonly duration?: number | undefined;
+    readonly parentId?: string | undefined;
+  }>;
+  readonly total: number;
+  readonly hasMore: boolean;
+}
+
+/** admin.stats — aggregated server metrics. */
+export interface AdminStatsResult {
+  readonly uptime: number;
+  readonly activeSessions: number;
+  readonly totalSessionsCreated: number;
+  readonly totalExecutions: number;
+  readonly totalAuditEntries: number;
+  readonly capabilityBreakdown: ReadonlyArray<{
+    readonly capability: string;
+    readonly count: number;
+    readonly denied: number;
+    readonly errors: number;
+  }>;
+  readonly recentErrors: ReadonlyArray<{
+    readonly sessionId: string;
+    readonly sessionName: string;
+    readonly timestamp: string;
+    readonly capability: string;
+    readonly operation: string;
+    readonly error: string;
+  }>;
+}
+
+/** admin.session.detail — extended session information. */
+export interface AdminSessionDetailParams {
+  readonly sessionId: string;
+}
+
+export interface AdminSessionDetailResult {
+  readonly sessionId: string;
+  readonly name: string;
+  readonly createdAt: string;
+  readonly executions: number;
+  readonly timeout: number;
+  readonly capabilities: ReadonlyArray<{
+    readonly kind: string;
+    readonly constraint: string;
+  }>;
+  readonly auditSummary: {
+    readonly totalEntries: number;
+    readonly byCapability: Record<string, number>;
+    readonly byResult: Record<string, number>;
+  };
+  readonly vfs: {
+    readonly fileCount: number;
+    readonly totalBytes: number;
+  };
+  readonly plugins: {
+    readonly pending: ReadonlyArray<{
+      readonly name: string;
+      readonly valid: boolean;
+      readonly status: string;
+    }>;
+    readonly loaded: ReadonlyArray<{
+      readonly name: string;
+      readonly exports: readonly string[];
+      readonly loadedAt: string;
+    }>;
+  };
+}
+
+/** admin.agent.run — run an agent script via RPC. */
+export interface AdminAgentRunParams {
+  readonly name: string;
+  readonly script: string;
+  readonly capabilities: readonly Capability[];
+  readonly timeout?: number;
+}
+
+export interface AdminAgentRunResult {
+  readonly success: boolean;
+  readonly exitCode: number;
+  readonly output: unknown;
+  readonly auditTrail: ReadonlyArray<{
+    readonly timestamp: string;
+    readonly capability: string;
+    readonly operation: string;
+    readonly result: string;
+    readonly error?: string;
+    readonly duration?: number;
+  }>;
+  readonly duration: number;
+  readonly error?: string;
+}
+
+/** admin.config.save — persist an agent configuration. */
+export interface AdminConfigSaveParams {
+  readonly configId?: string;
+  readonly config: {
+    readonly name: string;
+    readonly capabilities: readonly Capability[];
+    readonly timeout?: number;
+  };
+}
+
+export interface AdminConfigSaveResult {
+  readonly configId: string;
+  readonly name: string;
+  readonly savedAt: string;
+}
+
+/** admin.config.get — retrieve a saved agent configuration. */
+export interface AdminConfigGetParams {
+  readonly configId: string;
+}
+
+export interface AdminConfigGetResult {
+  readonly configId: string;
+  readonly config: {
+    readonly name: string;
+    readonly capabilities: readonly Capability[];
+    readonly timeout?: number;
+  };
+  readonly savedAt: string;
+  readonly updatedAt: string;
+}
+
+/** admin.config.list — list all saved agent configurations. */
+export interface AdminConfigListResult {
+  readonly configs: ReadonlyArray<{
+    readonly configId: string;
+    readonly name: string;
+    readonly capabilityCount: number;
+    readonly savedAt: string;
+    readonly updatedAt: string;
+  }>;
+}
+
+/** admin.config.delete — remove a saved agent configuration. */
+export interface AdminConfigDeleteParams {
+  readonly configId: string;
+}
+
+export interface AdminConfigDeleteResult {
+  readonly configId: string;
+  readonly deleted: boolean;
+}
+
+/** admin.config.launch — create a session from a saved configuration. */
+export interface AdminConfigLaunchParams {
+  readonly configId: string;
+  readonly files?: Record<string, string>;
+}
+
+export interface AdminConfigLaunchResult {
+  readonly sessionId: string;
+  readonly configId: string;
+  readonly name: string;
+  readonly capabilities: readonly Capability[];
+}
+
+/** admin.plugins.pending — list ALL pending plugins across all sessions. */
+export interface AdminPluginsPendingResult {
+  readonly plugins: ReadonlyArray<{
+    readonly sessionId: string;
+    readonly sessionName: string;
+    readonly pluginName: string;
+    readonly valid: boolean;
+    readonly errors: readonly string[];
+    readonly exports: readonly string[];
+    readonly requestedAt: string;
+    readonly status: string;
+  }>;
 }

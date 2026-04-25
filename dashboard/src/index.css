@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #09090b;
+  --color-foreground: #fafafa;
+  --color-card: #09090b;
+  --color-card-foreground: #fafafa;
+  --color-popover: #09090b;
+  --color-popover-foreground: #fafafa;
+  --color-primary: #fafafa;
+  --color-primary-foreground: #18181b;
+  --color-secondary: #27272a;
+  --color-secondary-foreground: #fafafa;
+  --color-muted: #27272a;
+  --color-muted-foreground: #a1a1aa;
+  --color-accent: #27272a;
+  --color-accent-foreground: #fafafa;
+  --color-destructive: #7f1d1d;
+  --color-destructive-foreground: #fafafa;
+  --color-border: #27272a;
+  --color-input: #27272a;
+  --color-ring: #d4d4d8;
+
+  --color-success: #22c55e;
+  --color-denied: #f59e0b;
+  --color-error: #ef4444;
+
+  --radius-sm: 0.125rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  font-family: var(--font-sans);
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+}
+
+/* Syntax highlighting for REPL */
+.repl-highlight .hl-keyword {
+  color: #60a5fa;
+  font-weight: 600;
+}
+.repl-highlight .hl-api {
+  color: #22d3ee;
+}
+.repl-highlight .hl-string {
+  color: #4ade80;
+}
+.repl-highlight .hl-cap-kind {
+  color: #facc15;
+  font-weight: 600;
+}
+.repl-highlight .hl-number,
+.repl-highlight .hl-bool {
+  color: #facc15;
+}
+.repl-highlight .hl-type {
+  color: #c084fc;
+  font-style: italic;
+}
+.repl-highlight .hl-comment {
+  color: #6b7280;
+}
+.repl-highlight .hl-operator {
+  color: #9ca3af;
+}
