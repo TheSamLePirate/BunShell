@@ -49,8 +49,12 @@ function gitOpts(extra?: Record<string, unknown>) {
   return opts;
 }
 
+// Network-backed tests are skipped without GITHUB_TOKEN to avoid hitting
+// the unauthenticated GitHub rate limit (60 req/h per IP) on shared CI.
+const itAuthed = process.env["GITHUB_TOKEN"] ? it : it.skip;
+
 describe("mountGit", () => {
-  it("mounts a public repo into VFS", async () => {
+  itAuthed("mounts a public repo into VFS", async () => {
     const vfs = createVfs();
     const result = await vfs.mountGit(
       "github://octocat/Hello-World",
@@ -92,7 +96,7 @@ describe("mountGit", () => {
     ).rejects.toThrow("GitHub API error");
   }, 15000);
 
-  it("respects maxFiles limit", async () => {
+  itAuthed("respects maxFiles limit", async () => {
     const vfs = createVfs();
     const result = await vfs.mountGit(
       "github://octocat/Hello-World",
@@ -102,7 +106,7 @@ describe("mountGit", () => {
     expect(result.filesLoaded).toBeLessThanOrEqual(2);
   }, 30000);
 
-  it("supports @ref for branches/tags", async () => {
+  itAuthed("supports @ref for branches/tags", async () => {
     const vfs = createVfs();
     const result = await vfs.mountGit(
       "github://octocat/Hello-World@master",
@@ -112,7 +116,7 @@ describe("mountGit", () => {
     expect(result.filesLoaded).toBeGreaterThan(0);
   }, 30000);
 
-  it("files are readable after mount", async () => {
+  itAuthed("files are readable after mount", async () => {
     const vfs = createVfs();
     await vfs.mountGit(
       "github://octocat/Hello-World",
@@ -128,7 +132,7 @@ describe("mountGit", () => {
     }
   }, 30000);
 
-  it("respects include filter", async () => {
+  itAuthed("respects include filter", async () => {
     const vfs = createVfs();
     const result = await vfs.mountGit(
       "github://octocat/Hello-World",

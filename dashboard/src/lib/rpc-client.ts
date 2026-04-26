@@ -12,18 +12,27 @@ import type {
   VfsEntry,
 } from "./rpc-types";
 
-const BASE_URL = import.meta.env.VITE_BUNSHELL_URL ?? "/api";
-const DIRECT_URL = import.meta.env.VITE_BUNSHELL_URL ?? "http://127.0.0.1:7483";
+// In dev (vite), POSTs go through the /api proxy and GETs hit the
+// dashboard's vite server (5173) — so DIRECT_URL must point at the
+// real BunShell server. In prod, the dashboard is served from the
+// BunShell server itself, so both can be relative ("/" works for
+// JSON-RPC POST and "/healthz", "/events" for GETs).
+const RPC_URL = import.meta.env.VITE_BUNSHELL_URL ?? (import.meta.env.PROD ? "/" : "/api");
+const HEALTH_URL = import.meta.env.VITE_BUNSHELL_URL
+  ? `${import.meta.env.VITE_BUNSHELL_URL.replace(/\/$/, "")}/healthz`
+  : import.meta.env.PROD
+    ? "/healthz"
+    : "http://127.0.0.1:7483/healthz";
 
 let idCounter = 0;
 
 export class RpcError extends Error {
-  constructor(
-    public readonly code: number,
-    message: string,
-    public readonly data?: unknown,
-  ) {
+  readonly code: number;
+  readonly data?: unknown;
+  constructor(code: number, message: string, data?: unknown) {
     super(message);
+    this.code = code;
+    this.data = data;
     this.name = "RpcError";
   }
 }
@@ -34,7 +43,7 @@ async function rpcCall<T>(
   timeout = 30000,
 ): Promise<T> {
   const id = ++idCounter;
-  const resp = await fetch(BASE_URL, {
+  const resp = await fetch(RPC_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
@@ -53,7 +62,7 @@ async function rpcCall<T>(
 export const api = {
   // Health check (GET, not RPC)
   health: async (): Promise<HealthInfo> => {
-    const resp = await fetch(DIRECT_URL, {
+    const resp = await fetch(HEALTH_URL, {
       signal: AbortSignal.timeout(5000),
     });
     return resp.json() as Promise<HealthInfo>;

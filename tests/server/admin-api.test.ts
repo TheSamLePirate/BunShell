@@ -351,7 +351,7 @@ describe("SSE /events", () => {
 
 describe("extended health check", () => {
   it("includes uptime and counters", async () => {
-    const resp = await fetch(server.url);
+    const resp = await fetch(`${server.url}/healthz`);
     const data = (await resp.json()) as Record<string, unknown>;
     expect(data["name"]).toBe("bunshell");
     expect(typeof data["uptime"]).toBe("number");

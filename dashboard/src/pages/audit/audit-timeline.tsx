@@ -12,7 +12,7 @@ export function AuditTimeline() {
 
   // Polling for historical data
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.audit.global(filters),
+    queryKey: queryKeys.audit.global(filters as Record<string, unknown>),
     queryFn: () => api.admin.auditQuery({ ...filters, limit: 200 }),
     refetchInterval: 3000,
   });

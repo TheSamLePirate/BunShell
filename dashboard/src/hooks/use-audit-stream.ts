@@ -3,8 +3,12 @@ import type { AuditEntryDTO } from "../lib/rpc-types";
 
 // SSE connects directly to BunShell — NOT through the Vite proxy.
 // Vite's http-proxy kills long-lived streaming connections ("socket hang up").
+// In production (dashboard served by BunShell itself) a relative URL works
+// because /events is on the same origin. In dev (vite on :5173), we need
+// an absolute URL so EventSource bypasses vite's proxy.
 const BUNSHELL_URL =
-  import.meta.env.VITE_BUNSHELL_URL ?? "http://127.0.0.1:7483";
+  import.meta.env.VITE_BUNSHELL_URL ??
+  (import.meta.env.PROD ? "" : "http://127.0.0.1:7483");
 
 const MAX_BACKOFF = 30_000;
 
@@ -16,7 +20,7 @@ export function useAuditStream(filters?: {
   const [entries, setEntries] = useState<AuditEntryDTO[]>([]);
   const [connected, setConnected] = useState(false);
   const esRef = useRef<EventSource | null>(null);
-  const reconnectRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const backoffRef = useRef(1000);
 
   useEffect(() => {

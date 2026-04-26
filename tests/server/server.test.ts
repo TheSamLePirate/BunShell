@@ -28,8 +28,8 @@ async function rpc(method: string, params?: Record<string, unknown>) {
 // ---------------------------------------------------------------------------
 
 describe("health check", () => {
-  it("GET / returns server info", async () => {
-    const resp = await fetch(server.url);
+  it("GET /healthz returns server info", async () => {
+    const resp = await fetch(`${server.url}/healthz`);
     const data = (await resp.json()) as Record<string, unknown>;
     expect(data["name"]).toBe("bunshell");
     expect(data["protocol"]).toBe("json-rpc-2.0");

@@ -14,6 +14,54 @@ import { handleRequest } from "./handler";
 import type { ServerContext } from "./handler";
 import { createConfigStore } from "./config-store";
 import type { AuditEntry } from "../audit/types";
+import { existsSync } from "node:fs";
+import { extname, join, resolve } from "node:path";
+
+const VERSION = "0.6.0";
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".map": "application/json; charset=utf-8",
+};
+
+function resolveDashboardDir(opt: string | false | undefined): string | null {
+  if (opt === false) return null;
+  const candidate = opt
+    ? resolve(opt)
+    : resolve(import.meta.dir, "../../dashboard/dist");
+  return existsSync(join(candidate, "index.html")) ? candidate : null;
+}
+
+/**
+ * Resolve a request path to a file inside dashboardDir, with SPA fallback.
+ * Returns the absolute file path (file is guaranteed to exist) or null
+ * if the path escapes dashboardDir.
+ */
+function resolveStaticFile(dashboardDir: string, pathname: string): string | null {
+  const cleanPath = pathname === "/" ? "/index.html" : pathname;
+  const absFile = resolve(join(dashboardDir, cleanPath));
+  // Path traversal guard: must stay inside dashboardDir
+  if (!absFile.startsWith(dashboardDir + "/") && absFile !== dashboardDir) {
+    return null;
+  }
+  if (existsSync(absFile)) return absFile;
+  // SPA fallback: any non-asset path → index.html so React Router takes over
+  if (!extname(cleanPath)) return join(dashboardDir, "index.html");
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +75,13 @@ export interface ServerOptions {
   readonly hostname?: string;
   /** Log requests to console (default: false). */
   readonly verbose?: boolean;
+  /**
+   * Directory containing the built dashboard (defaults to
+   * `<repo>/dashboard/dist`). Pass `false` to disable static serving.
+   * If the directory does not contain `index.html`, static serving is
+   * silently skipped and a hint is logged at startup.
+   */
+  readonly dashboardDir?: string | false;
 }
 
 /** A running BunShell server handle. */
@@ -78,6 +133,7 @@ export function startServer(options?: ServerOptions): BunShellServer {
   const port = options?.port ?? 7483;
   const hostname = options?.hostname ?? "127.0.0.1";
   const verbose = options?.verbose ?? false;
+  const dashboardDir = resolveDashboardDir(options?.dashboardDir);
 
   const mgr = createSessionManager();
   const configStore = createConfigStore();
@@ -191,19 +247,44 @@ export function startServer(options?: ServerOptions): BunShellServer {
           });
         }
 
-        // Health check (GET /)
         const stats = mgr.stats();
+        const healthBody = {
+          name: "bunshell",
+          version: VERSION,
+          protocol: "json-rpc-2.0",
+          dashboard: dashboardDir !== null,
+          sessions: mgr.list().length,
+          uptime: stats.uptime,
+          totalExecutions: stats.totalExecutions,
+          totalAuditEntries: stats.totalAuditEntries,
+        };
+
+        // Explicit health endpoint always returns JSON, regardless of UI mode.
+        if (url.pathname === "/healthz") {
+          return Response.json(healthBody, { headers: corsHeaders });
+        }
+
+        // Dashboard static handler — serves the built React app under any
+        // GET path that maps to a file in `dashboardDir`. SPA fallback so
+        // React Router routes (/repl, /audit, …) all return index.html.
+        if (dashboardDir) {
+          const file = resolveStaticFile(dashboardDir, url.pathname);
+          if (file) {
+            const mime = MIME[extname(file).toLowerCase()] ?? "application/octet-stream";
+            return new Response(Bun.file(file), {
+              headers: { ...corsHeaders, "Content-Type": mime },
+            });
+          }
+        }
+
+        // No dashboard (or path didn't match): fall back to JSON health on /
+        if (url.pathname === "/") {
+          return Response.json(healthBody, { headers: corsHeaders });
+        }
+
         return Response.json(
-          {
-            name: "bunshell",
-            version: "0.1.0",
-            protocol: "json-rpc-2.0",
-            sessions: mgr.list().length,
-            uptime: stats.uptime,
-            totalExecutions: stats.totalExecutions,
-            totalAuditEntries: stats.totalAuditEntries,
-          },
-          { headers: corsHeaders },
+          { error: "Not found", path: url.pathname },
+          { status: 404, headers: corsHeaders },
         );
       }
 
@@ -267,11 +348,20 @@ export function startServer(options?: ServerOptions): BunShellServer {
 
   if (verbose) {
     console.log(
-      `${C.bold}${C.cyan}BunShell Server${C.reset} ${C.dim}v0.1.0${C.reset}`,
+      `${C.bold}${C.cyan}BunShell Server${C.reset} ${C.dim}v${VERSION}${C.reset}`,
     );
     console.log(`${C.green}Listening${C.reset} on ${C.bold}${url}${C.reset}`);
     console.log(`${C.dim}Protocol: JSON-RPC 2.0 over HTTP POST${C.reset}`);
-    console.log(`${C.dim}GET / for health check${C.reset}\n`);
+    if (dashboardDir) {
+      console.log(`${C.dim}Dashboard:${C.reset} ${C.cyan}${url}/${C.reset} ${C.dim}(${dashboardDir})${C.reset}`);
+    } else if (options?.dashboardDir === false) {
+      console.log(`${C.dim}Dashboard: disabled (--no-ui)${C.reset}`);
+    } else {
+      console.log(
+        `${C.yellow}Dashboard not built${C.reset} ${C.dim}— run \`bun run build\` to enable the UI${C.reset}`,
+      );
+    }
+    console.log(`${C.dim}Health: GET ${url}/healthz${C.reset}\n`);
   }
 
   return {

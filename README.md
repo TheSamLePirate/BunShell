@@ -21,6 +21,16 @@ The shell shows this live — real-time syntax highlighting as you type, and `ts
 
 ```bash
 bun install
+bun run build              # installs dashboard deps + builds dashboard/dist
+bun run start              # JSON-RPC server + dashboard at http://127.0.0.1:7483
+```
+
+Open `http://127.0.0.1:7483` in a browser. See [docs/INSTALL.md](docs/INSTALL.md) for full install / run instructions and [docs/SELF_HOST.md](docs/SELF_HOST.md) for production deployment.
+
+To scaffold a `.bunshell.ts` config in a new repo:
+
+```bash
+bun run init --name my-agent --preset builder
 ```
 
 ### Interactive Shell
@@ -594,8 +604,12 @@ const token = secrets.get(ctx, "GITHUB_TOKEN");  // decrypted on access
 ```bash
 bun run shell           # Interactive TypeScript shell (highlighted, type-checked)
 bun run shell:audit     # Shell with audit logging to console
-bun run server          # JSON-RPC server on port 7483
-bun test                # Run 542 tests
+bun run server          # JSON-RPC server on port 7483 (verbose)
+bun run start           # Same as server, but quieter; serves the dashboard if built
+bun run build           # Install dashboard deps + build dashboard/dist
+bun run dev             # Server + dashboard dev (vite) in parallel
+bun run init            # Scaffold .bunshell.ts in the current directory
+bun test                # Run all tests
 bun run typecheck       # TypeScript type checking
 bun run check           # Both typecheck + tests
 ```

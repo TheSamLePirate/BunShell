@@ -2,6 +2,25 @@
 
 All notable changes to BunShell are documented here.
 
+## [0.6.0] — 2026-04-26
+
+### Added
+- `LICENSE` file (MIT) — README's claim now backed by a real license.
+- `CONTRIBUTING.md` — getting started, repo layout, wrapper template, testing rules.
+- `bin/bunshell-init.ts` — scaffold a `.bunshell.ts` config in any repo via `bunshell init`. Picks one of the existing `readonly` / `builder` / `full` presets from `src/capabilities/presets.ts`.
+- Server now serves the React dashboard from `dashboard/dist` on `GET /` (SPA fallback to `index.html`).
+- `bin/bunshell-server.ts` flags: `--no-ui`, `--dashboard-dir <path>`. `BUNSHELL_DASHBOARD_DIR` env also honoured.
+- Root `package.json` scripts: `dashboard:install`, `dashboard:dev`, `dashboard:build`, `build`, `start`, `dev`.
+- `.github/workflows/ci.yml` — typecheck + tests + dashboard build on Ubuntu and macOS.
+- `docs/INSTALL.md` and `docs/SELF_HOST.md`.
+
+### Changed
+- Dashboard `rpc-client.ts` uses relative URLs (`/`, `/events`) when bundled in production. The `VITE_BUNSHELL_URL` override still works for split-host setups.
+- Cross-platform test gating: `tests/wrappers/system.test.ts` (uname is platform-agnostic), `tests/vfs/live-mount.test.ts` (`disk → VFS propagation` skipped on Linux — `fs.watch({recursive:true})` unsupported), `tests/vfs/git-mount.test.ts` (5 network-backed tests gated behind `GITHUB_TOKEN` to avoid unauthenticated rate limits).
+- `tests/wrappers/git.test.ts` no longer hardcodes branch `main` — works on any feature branch.
+- README "Quick Start" updated to `bun run build && bun run start`.
+- Removed root `.bunshell.ts` (used a hardcoded absolute path baked to one developer's machine). Use `examples/bunshell.config.ts` as the template instead.
+
 ## [0.5.0] — 2026-04-09
 
 ### Added
