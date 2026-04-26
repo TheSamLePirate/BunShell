@@ -172,7 +172,7 @@ function buildCapability(kind: CapabilityKind, param: string): Capability {
 }
 
 function capLabel(cap: Capability): string {
-  const parts = [cap.kind];
+  const parts: string[] = [cap.kind];
   if (cap.pattern) parts.push(cap.pattern);
   if (cap.allowedBinaries) parts.push(cap.allowedBinaries.join(","));
   if (cap.allowedDomains) parts.push(cap.allowedDomains.join(","));

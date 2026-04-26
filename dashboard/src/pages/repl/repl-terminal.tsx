@@ -193,7 +193,7 @@ Use Tab for autocompletion, arrow keys for history.`,
         const selected =
           currentCompletions[completionIdx % currentCompletions.length];
         setInput(input.slice(0, -wordMatch[1].length) + selected);
-        setCompletions([]);
+        setCompletionIdx(0);
       }
       return;
     }

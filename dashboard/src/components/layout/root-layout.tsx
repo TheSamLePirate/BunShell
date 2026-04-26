@@ -13,7 +13,8 @@ export function RootLayout() {
         {isError && (
           <div className="bg-destructive/20 border-b border-destructive/50 px-4 py-2 text-sm text-destructive-foreground">
             Server unreachable at{" "}
-            {import.meta.env.VITE_BUNSHELL_URL ?? "http://127.0.0.1:7483"}
+            {import.meta.env.VITE_BUNSHELL_URL ??
+              (import.meta.env.PROD ? window.location.origin : "http://127.0.0.1:7483")}
           </div>
         )}
         <Header />

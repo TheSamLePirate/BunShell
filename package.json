@@ -1,17 +1,25 @@
 {
   "name": "bunshell",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "Typed agent shell system — TypeScript types as permissions",
   "type": "module",
   "main": "src/index.ts",
   "bin": {
     "bunshell": "bin/bunshell.ts",
-    "bunshell-server": "bin/bunshell-server.ts"
+    "bunshell-server": "bin/bunshell-server.ts",
+    "bunshell-init": "bin/bunshell-init.ts"
   },
   "scripts": {
     "shell": "bun run bin/bunshell.ts",
     "shell:audit": "bun run bin/bunshell.ts --audit",
     "server": "bun run bin/bunshell-server.ts --verbose",
+    "start": "bun run bin/bunshell-server.ts",
+    "dev": "bun run bin/bunshell-server.ts & bun run dashboard:dev",
+    "dashboard:install": "cd dashboard && bun install",
+    "dashboard:dev": "cd dashboard && bun run dev",
+    "dashboard:build": "cd dashboard && bun run build",
+    "build": "bun run dashboard:install && bun run dashboard:build",
+    "init": "bun run bin/bunshell-init.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "tsc --noEmit && bun test"

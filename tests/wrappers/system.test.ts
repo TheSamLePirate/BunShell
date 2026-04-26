@@ -14,11 +14,11 @@ const ctx = createContext({
 describe("uname", () => {
   it("returns system info", () => {
     const info = uname(ctx);
-    expect(info.os).toBe("darwin");
+    expect(["darwin", "linux", "win32"]).toContain(info.os);
     expect(info.arch).toBeTruthy();
     expect(info.hostname).toBeTruthy();
     expect(info.release).toBeTruthy();
-    expect(info.platform).toContain("darwin");
+    expect(info.platform.startsWith(info.os)).toBe(true);
   });
 });
 
